@@ -83,6 +83,8 @@ body[data-color-mode="dark"] .mp-dashboard {
   border: 1px solid var(--mp-border); border-radius: 999px;
 }
 .mp-dashboard .mp-dash-chip:hover { border-color: var(--mp-accent); }
+.mp-dashboard a.mp-dash-stat { display: block; color: inherit; text-decoration: none; }
+.mp-dashboard a.mp-dash-stat:hover, .mp-dashboard a.mp-dash-stat:focus-visible { outline: 2px solid var(--focus-outlineColor, #a9583e); outline-offset: 2px; }
 /* Selected is marked in the theme's card and ink, not the button's terracotta (#203). */
 .mp-dashboard .mp-dash-chip.mp-is-active {
   background: var(--mp-selected-bg, var(--mp-accent-soft));

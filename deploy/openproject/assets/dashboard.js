@@ -12,7 +12,8 @@
 // Everything is built as DOM nodes from text, so nothing an author wrote is interpreted
 // as HTML.
 
-import { createShell, el, loadingNode } from './shell.js?v=4a5e3f829e';
+import { createShell, el, loadingNode } from './shell.js?v=ed60c0da2c';
+import { recordUrl } from './ui-controls.js?v=a9c7e129c8';
 
 let root = null;
 let apiBase = '';
@@ -232,8 +233,17 @@ function statTiles(tally, label) {
   section.setAttribute('role', 'list');
   section.setAttribute('aria-label', label);
   for (const metric of METRICS) {
-    const tile = el('div', 'mp-dash-stat');
-    tile.setAttribute('role', 'listitem');
+    const actionable = label === '现状' && (metric.label === '未认领' || STATE_ORDER.includes(metric.label));
+    const tile = el(actionable ? 'a' : 'div', 'mp-dash-stat');
+    if (actionable) {
+      const url = state.project ? recordUrl('requirements', state.project) : new URL('/requirements', location.origin);
+      if (metric.label === '未认领') {
+        url.searchParams.set('unclaimed', '1');
+        for (const name of state.data?.endedStates ?? ['已完成', '已合并', '取消']) url.searchParams.append('exclude_state', name);
+      } else url.searchParams.set('state', metric.label);
+      tile.href = url.href;
+      tile.title = state.project ? `查看${metric.label}的需求` : `先选择项目，再查看${metric.label}的需求`;
+    } else tile.setAttribute('role', 'listitem');
     const name = el('span', 'mp-dash-stat-label', metric.label);
     if (metric.hint) name.append(el('span', 'mp-dash-stat-hint', metric.hint));
     tile.append(name, el('span', 'mp-dash-stat-value', tally ? String(metric.value(tally)) : '–'));
@@ -482,7 +492,7 @@ function attentionCards(view) {
   const panel = card('待接手的交接', count(handoffs));
   panel.append(itemList(handoffs && {
     ...handoffs,
-    items: handoffs.items.map(item => ({ ...item, href: `/projects/${encodeURIComponent(item.project)}/handoff` }))
+    items: handoffs.items.map(item => ({ ...item, href: recordUrl('handoff', item.project, item.id || item.workPackageId).href }))
   }, {
     empty: '没有待接手的交接。',
     describe: item => {

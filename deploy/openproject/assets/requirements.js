@@ -1,3 +1,5 @@
+import { showCreateForm } from './create-form.js?v=50f83a502d';
+import { copyButton, recordUrl, recordPicker, pressed } from './ui-controls.js?v=a9c7e129c8';
 // Requirement pool module, running inside OpenProject's own page.
 //
 // Second consumer of the arrangement the handoff module introduced: OpenProject renders
@@ -14,7 +16,7 @@ import { localTime, proseNodes, splitInstants } from './prose.js?v=2f4b0da858';
 import {
   createSheetHistory, createShell, el, forgetProject, isCompact, loadingNode, rememberedProject, rememberProject,
   sheetBar, startingProject
-} from './shell.js?v=4a5e3f829e';
+} from './shell.js?v=ed60c0da2c';
 
 let root = null;
 let searchTimer = null;
@@ -359,6 +361,9 @@ function editableCell(item, column) {
   const tone = column.edit.tone?.(item[column.key]) ?? null;
   const node = el('select', 'mp-cell-input' + (tone ? ` mp-tone-${tone}` : ''));
   const current = item[column.key] ?? '';
+  const owner = state.user?.role === 'admin' || item.ownerUserId === state.user?.userId;
+  node.disabled = state.permissions?.edit === false || !owner;
+  if (node.disabled) node.title = '请打开详情查看当前可操作权限；列表只允许所属用户或管理员直接修改';
   for (const value of ['', ...(options[column.edit.options] ?? [])]) {
     const option = el('option', '', value === '' ? '—' : value);
     option.value = value;
@@ -371,11 +376,14 @@ function editableCell(item, column) {
     event.stopPropagation();
     const value = node.value;
     node.disabled = true;
+    const view = state, project = view.project, container = root;
+    const currentView = () => state === view && state.project === project && root === container && container.isConnected;
     try {
       const saved = await post(
         `/requirements/${encodeURIComponent(item.id ?? item.workPackageId)}/${column.edit.endpoint}`,
         { [column.edit.field]: value, lockVersion: item.lockVersion }
       );
+      if (!currentView()) return;
       Object.assign(item, saved.requirement ?? {});
       notify('已保存');
       // The new value can take the row out of the filters (Brian 2026-09-23, #193), and
@@ -383,11 +391,12 @@ function editableCell(item, column) {
       void refreshList();
       if (state.selected === (item.id ?? String(item.workPackageId))) void refreshDetail();
     } catch (error) {
+      if (!currentView()) return;
       node.value = current;
       notify(error.message, 'error');
     } finally {
       node.disabled = false;
-      render();
+      if (currentView()) render();
     }
   };
   return node;
@@ -471,7 +480,9 @@ export function listParams(view) {
   const requirementId = (view.requirementId ?? '').trim();
   if (requirementId) params.push(['requirement_id', requirementId]);
   // Finished work stays out until the 需求状态 column says otherwise.
-  if (!view.select?.state?.length) params.push(['exclude_state', HIDDEN_BY_DEFAULT]);
+  if (!view.select?.state?.length) {
+    for (const name of view.excludeStates?.length ? view.excludeStates : [HIDDEN_BY_DEFAULT]) params.push(['exclude_state', name]);
+  }
   return params;
 }
 
@@ -586,7 +597,12 @@ function requirementTable() {
           // Keeps titles on one line whether or not a row has a toggle.
           cell.append(el('span', 'mp-row-toggle mp-is-empty', ''));
         }
-        cell.append(el('span', 'mp-row-title', item.title));
+        const title = el('a', 'mp-row-title', item.title);
+        title.href = recordUrl('requirements', state.project, item.id || item.workPackageId).href;
+        title.onclick = event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && event.button === 0) {
+          event.preventDefault(); event.stopPropagation(); void selectRequirement(item.id ?? String(item.workPackageId));
+        } };
+        cell.append(title);
         if (collapsed && buried) cell.append(el('span', 'mp-row-parent', ` +${buried}`));
         if (detached) cell.append(el('span', 'mp-row-parent', ` 属于 ${item.parentTitle ?? '上级需求'}`));
       } else if (column.edit) {
@@ -817,25 +833,135 @@ const TABS = [
  * blocked by a dependency or an unfinished required child. Those checks live on the
  * server, where they cannot be skipped; the page only reports what comes back.
  */
+function editRequirement() {
+  const detail = state.detail, item = detail.summary, project = state.project;
+  const current = () => root?.isConnected && state.project === project && state.selected === (item.id || String(item.workPackageId));
+  showCreateForm({ kind: 'edit', types: state.types, userId: state.user?.userId,
+    project: state.projects.find(value => value.identifier === project) || { identifier: project },
+    initial: { ...item, agentUnderstanding: detail.agentUnderstanding ?? '', scope: detail.scope ?? '', acceptanceCriteria: detail.acceptanceCriteria ?? '' },
+    submit: body => send(`/requirements/${encodeURIComponent(item.id || item.workPackageId)}/content`, {
+      method: 'POST', params: [['project', project]], body: JSON.stringify({ ...body, lockVersion: item.lockVersion, note: '在需求详情编辑理解、范围和验收' })
+    }),
+    created: async () => { if (current()) { await refreshDetail(); await refreshList(); notify('需求已保存'); } }
+  });
+}
+
+function attachmentEditor(item) {
+  const form = el('form', 'mp-section'); form.setAttribute('aria-label', '上传需求附件');
+  const input = el('input'); input.type = 'file'; input.required = true;
+  form.append(field('上传参考文件（最多 20 MiB）', input));
+  const status = el('p', 'mp-hint'); status.setAttribute('role', 'status');
+  const button = el('button', 'mp-action mp-is-primary', '上传附件'); button.type = 'submit';
+  button.disabled = state.detail?.permissions?.upload === false;
+  if (button.disabled) status.textContent = '仅需求所属用户或管理员可上传附件。';
+  form.append(status, button);
+  const project = state.project, container = root;
+  form.onsubmit = async event => {
+    event.preventDefault();
+    const file = input.files?.[0];
+    if (!file || button.disabled) return;
+    if (file.size > 20 * 1024 * 1024) { status.textContent = '文件超过 20 MiB，请选择较小的文件。'; return; }
+    button.disabled = true; status.textContent = '正在上传…';
+    try {
+      const data = await new Promise((resolve, reject) => {
+        const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('无法读取文件')); reader.readAsDataURL(file);
+      });
+      await send(`/requirements/${encodeURIComponent(item.id || item.workPackageId)}/attachment`, {
+        method: 'POST', params: [['project', project]], body: JSON.stringify({ fileName: file.name, content: data, contentType: file.type || 'application/octet-stream' })
+      });
+      if (root === container && container.isConnected && state.project === project && state.selected === (item.id || String(item.workPackageId))) {
+        await refreshDetail(); notify('附件已上传');
+      }
+    } catch (error) { if (form.isConnected) status.textContent = error.message; }
+    finally { button.disabled = false; }
+  };
+  return form;
+}
+
+function relationEditor(item) {
+  const section = el('details', 'mp-section'); section.append(el('summary', '', '维护父级与执行依赖'));
+  const form = el('form');
+  const mode = el('select');
+  for (const [value, text] of [['dependency', '设置本需求的前置任务'], ['parent', '设置或取消父级']]) {
+    const option = el('option', '', text); option.value = value; mode.append(option);
+  }
+  form.append(field('关系操作', mode));
+  const picker = recordPicker({ project: state.project, label: '选择同项目需求', exclude: item.workPackageId });
+  form.append(picker.node, el('p', 'mp-hint', '前置任务与父子归属分别维护。设置父级时不选需求表示取消父级。'));
+  const required = el('input'); required.type = 'checkbox'; required.checked = true;
+  form.append(field('作为父级完成的必需子任务', required));
+  const status = el('p', 'mp-hint'); status.setAttribute('role', 'status');
+  const save = el('button', 'mp-action', '保存关系'); save.type = 'submit';
+  save.disabled = state.detail?.permissions?.manage === false;
+  form.append(status, save); section.append(form);
+  const project = state.project, container = root;
+  form.onsubmit = async event => {
+    event.preventDefault(); if (save.disabled) return;
+    const target = picker.value();
+    if (mode.value === 'dependency' && !target) { status.textContent = '请先选择前置任务。'; return; }
+    if (mode.value === 'parent' && !target && !confirm('确认取消当前需求的父级？')) return;
+    const body = mode.value === 'dependency' ? { prerequisite: target.workPackageId }
+      : { parent: target?.workPackageId ?? null, requiredForParent: Boolean(target) && required.checked, lockVersion: item.lockVersion };
+    save.disabled = true; status.textContent = '';
+    try {
+      await send(`/requirements/${encodeURIComponent(item.id || item.workPackageId)}/${mode.value}`, {
+        method: 'POST', params: [['project', project]], body: JSON.stringify(body)
+      });
+      if (root === container && container.isConnected && state.project === project && state.selected === (item.id || String(item.workPackageId))) {
+        await refreshDetail(); await refreshList(); notify('关系已保存');
+      }
+    } catch (error) { if (form.isConnected) status.textContent = error.message; }
+    finally { save.disabled = false; }
+  };
+  return section;
+}
+
 function actionBar(item) {
   const bar = el('div', 'mp-actions');
   const open = name => { state.form = state.form === name ? null : name; render(); };
 
+  const permissions = state.detail?.permissions;
+  const ended = ['已完成', '已合并'].includes(item.state);
+  const edit = el('button', 'mp-action', '编辑需求'); edit.type = 'button';
+  edit.disabled = permissions?.update === false;
+  edit.onclick = editRequirement;
+  bar.append(edit);
+  const split = el('button', 'mp-action', '分工子任务');
+  split.type = 'button';
+  split.disabled = ended || permissions?.manage === false || permissions?.create === false;
+  split.title = ended ? '请先重新打开主需求，再增加子任务' : '拆分后，各子任务独立认领与验收';
+  split.onclick = () => createRequirement(item);
+  bar.append(split);
+  if (['已完成', '已合并'].includes(item.state)) {
+    const reopen = el('button', 'mp-action', '重新打开');
+    reopen.type = 'button';
+    reopen.disabled = permissions?.manage === false;
+    reopen.onclick = () => open('reopen');
+    bar.append(reopen);
+    return bar;
+  }
   const claimed = Boolean(item.claimedAgent || item.claimedSession);
   const claim = el('button', 'mp-action', claimed ? '重新认领' : '认领');
   claim.type = 'button';
+  claim.title = '记录本次由谁处理，防止重复开工';
+  claim.disabled = permissions?.claim === false;
   claim.onclick = () => open('claim');
   bar.append(claim);
 
   if (claimed) {
     const release = el('button', 'mp-action', '释放');
     release.type = 'button';
+    release.disabled = permissions?.release === false;
+    release.title = '填写原因后交还任务，保留处理历史';
     release.onclick = () => open('release');
     bar.append(release);
   }
 
   const complete = el('button', 'mp-action', '完成');
   complete.type = 'button';
+  complete.disabled = permissions?.update === false;
+  if (state.detail?.completion?.ready === false) { complete.disabled = true; complete.title = '请先完成前置依赖和必需子任务'; }
   complete.onclick = () => open('complete');
   bar.append(complete);
   return bar;
@@ -857,18 +983,21 @@ const input = (placeholder, value = '') => {
 };
 
 async function submitForm(path, body, button) {
+  const reference = state.selected;
+  const view = state, project = view.project, container = root;
+  const current = () => state === view && state.project === project && root === container && container.isConnected && state.selected === reference;
   button.disabled = true;
   try {
-    await post(`/requirements/${encodeURIComponent(state.selected)}/${path}`, body);
+    await post(`/requirements/${encodeURIComponent(reference)}/${path}`, body);
+    if (!current()) return;
     state.form = null;
     notify('已保存');
     await selectRequirement(state.selected);
     await reload();
   } catch (error) {
-    notify(error.message, 'error');
+    if (current()) notify(error.message, 'error');
   } finally {
     button.disabled = false;
-    render();
   }
 }
 
@@ -886,15 +1015,22 @@ function actionForm(item) {
 
   if (state.form === 'claim') {
     const agent = el('select', 'mp-form-input');
-    for (const value of options.claimedAgent ?? []) {
-      const option = el('option', '', value);
+    for (const value of ['', ...(options.claimedAgent ?? [])]) {
+      const option = el('option', '', value || '本人（网页操作）');
       option.value = value;
-      if (value === (item.claimedAgent ?? item.responsibleAgent)) option.selected = true;
+      if (value === (item.claimedAgent ?? '')) option.selected = true;
       agent.append(option);
     }
     const scope = input('这次要做到哪一步');
     form.append(field('认领 Agent', agent), field('认领范围', scope));
     submit('认领', () => ({ agent: agent.value, scope: scope.value, lockVersion: item.lockVersion }));
+    return form;
+  }
+
+  if (state.form === 'reopen') {
+    const reason = input('说明为什么需要继续处理');
+    form.append(field('重新打开原因（必填）', reason));
+    submit('重新打开', () => ({ reason: reason.value, lockVersion: item.lockVersion }));
     return form;
   }
 
@@ -911,7 +1047,7 @@ function actionForm(item) {
   // configuration — where there is no commit to name. Only the fields of the kind chosen
   // are shown.
   const kind = el('select', 'mp-form-input');
-  for (const [value, label] of [['git', 'Git 提交'], ['file', '仓库外文件']]) {
+  for (const [value, label] of [['manual', '人工验收'], ['git', 'Git 提交'], ['file', '仓库外文件']]) {
     const option = el('option', '', label);
     option.value = value;
     kind.append(option);
@@ -931,7 +1067,9 @@ function actionForm(item) {
   }
   const gitFields = [field('仓库', repository), field('提交 SHA', sha), field('路径', paths)];
   const fileFields = [field('位置', locations), field('变更说明', change)];
+  const reviewFields = [field('验证', verification), field('验收状态', acceptanceStatus), field('验收来源', acceptanceSource)];
   const showKind = () => {
+    for (const node of reviewFields) node.hidden = kind.value === 'manual';
     for (const node of gitFields) node.hidden = kind.value !== 'git';
     for (const node of fileFields) node.hidden = kind.value !== 'file';
   };
@@ -939,10 +1077,11 @@ function actionForm(item) {
   showKind();
   form.append(
     field('交付类型', kind), ...gitFields, ...fileFields,
-    field('验证', verification), field('验收状态', acceptanceStatus), field('验收来源', acceptanceSource)
+    ...reviewFields
   );
+  form.append(el('p', 'mp-form-note', '人工验收表示你已按验收条件检查结果，系统记录完成时间与操作人。'));
   submit('完成', () => ({
-    evidence: [completionEvidence(kind.value, {
+    evidence: kind.value === 'manual' ? [] : [completionEvidence(kind.value, {
       repository: repository.value, sha: sha.value, paths: paths.value,
       locations: locations.value, change: change.value,
       verification: verification.value, acceptanceStatus: acceptanceStatus.value,
@@ -1001,8 +1140,9 @@ function iconButton(icon, label, onclick) {
 }
 
 function detailPanel() {
-  const summary = state.items.find(candidate => candidate.id === state.selected);
-  if (!summary && !state.detail) return null;
+  if (!state.selected) return null;
+  const summary = state.items.find(candidate => candidate.id === state.selected || String(candidate.workPackageId) === String(state.selected))
+    ?? { title: '需求详情', id: null, workPackageId: state.selected };
   const detail = state.detail;
   const item = detail?.summary ?? summary;
   const panel = el('aside', 'mp-detail');
@@ -1013,9 +1153,12 @@ function detailPanel() {
   const head = el('div', 'mp-detail-head');
   const heading = el('div');
   heading.append(el('h3', 'mp-detail-title', item.title));
-  heading.append(el('div', 'mp-detail-id', item.id ?? `#${item.workPackageId}`));
+  const identity = el('details', 'mp-record-id');
+  identity.append(el('summary', '', `#${item.workPackageId} · 查看完整编号`), el('div', 'mp-detail-id', item.id ?? `#${item.workPackageId}`));
+  heading.append(identity);
   head.append(heading);
   const tools = el('div', 'mp-detail-tools');
+  tools.append(copyButton(() => recordUrl('requirements', state.project, item.id || item.workPackageId).href));
   tools.append(iconButton(state.expanded ? 'collapse' : 'expand', state.expanded ? '回到列表' : '展开', () => {
     state.expanded = !state.expanded;
     render();
@@ -1025,14 +1168,22 @@ function detailPanel() {
   panel.append(head);
 
   if (!detail) {
-    panel.append(loadingNode('载入详情…'));
+    if (state.detailFailure) {
+      panel.append(el('p', 'mp-empty', state.detailFailure));
+      const retry = el('button', 'mp-action', '重新载入');
+      retry.type = 'button';
+      retry.onclick = () => selectRequirement(state.selected);
+      panel.append(retry);
+    } else panel.append(loadingNode('载入详情…'));
     return panel;
   }
 
   const tabs = el('div', 'mp-tabs');
+  tabs.setAttribute('role', 'group'); tabs.setAttribute('aria-label', '需求详情章节');
   for (const tab of TABS) {
     const button = el('button', 'mp-tab' + (state.tab === tab.key ? ' mp-is-active' : ''));
     button.type = 'button';
+    pressed(button, state.tab === tab.key);
     button.append(el('span', '', tab.label));
     const count = tab.count?.(detail) ?? null;
     if (count) button.append(el('span', 'mp-tab-count', String(count)));
@@ -1050,6 +1201,22 @@ function detailPanel() {
   panel.append(body);
 
   if (state.tab === 'overview') {
+    const completion = detail.completion ?? {};
+    const blocked = (completion.blockingDependencies?.length ?? 0) + (completion.incompleteRequiredChildren?.length ?? 0);
+    body.append(el('div', 'mp-ready ' + (completion.complete ? 'mp-is-done' : completion.ready ? 'mp-is-ready' : 'mp-is-blocked'),
+      completion.complete ? '已完成' : completion.ready ? '可以开工' : `被 ${blocked} 项挡住`));
+    body.append(actionBar(item));
+    const form = actionForm(item); if (form) body.append(form);
+    body.append(section('目标与验收', () => {
+      const content = el('div', 'mp-detail-prose');
+      for (const [label, value] of [['Agent 理解', detail.agentUnderstanding], ['范围', detail.scope], ['验收条件', detail.acceptanceCriteria]]) {
+        if (value) content.append(el('h4', '', label), ...proseNodes(value));
+      }
+      if (!content.childNodes.length) content.append(...proseNodes(detail.description || '尚无正文。'));
+      return content;
+    }));
+    const trace = el('details', 'mp-trace'); trace.append(el('summary', '', '查看处理、来源与追溯信息'));
+    const metadata = el('div'); trace.append(metadata); body.append(trace);
     // Grouped rather than one dense label/value grid. A requirement carries a dozen
     // attributes and reading them off a packed two-column list is tiring
     // (Brian 2026-09-22); the native page groups its own for the same reason.
@@ -1113,21 +1280,10 @@ function detailPanel() {
         grid.append(cell);
       }
       group.append(grid);
-      body.append(group);
+      metadata.append(group);
     }
 
-    const completion = detail.completion ?? {};
-    const blocked = (completion.blockingDependencies?.length ?? 0)
-      + (completion.incompleteRequiredChildren?.length ?? 0);
-    body.append(el('div',
-      'mp-ready ' + (completion.complete ? 'mp-is-done' : completion.ready ? 'mp-is-ready' : 'mp-is-blocked'),
-      completion.complete ? '已完成' : completion.ready ? '可以开工' : `被 ${blocked} 项挡住`));
-
-    body.append(actionBar(item));
-    const form = actionForm(item);
-    if (form) body.append(form);
-
-    body.append(section('正文', () => {
+    metadata.append(section('完整原文与记录', () => {
       if (!detail.description) return el('p', 'mp-empty', '尚无正文。');
       const prose = el('div', 'mp-detail-prose');
       prose.append(...proseNodes(detail.description));
@@ -1136,6 +1292,7 @@ function detailPanel() {
   }
 
   if (state.tab === 'relations') {
+    body.append(relationEditor(item));
     if (detail.parent) body.append(section('上级需求', () => referenceList([detail.parent], '')));
     body.append(section('子需求', () => referenceList(detail.children, '没有子需求。')));
     const deps = detail.dependencies ?? {};
@@ -1152,6 +1309,7 @@ function detailPanel() {
   }
 
   if (state.tab === 'files') {
+    body.append(attachmentEditor(item));
     if (!detail.attachments?.length) body.append(el('p', 'mp-empty', '没有附件。'));
     else {
       const list = el('ul', 'mp-ref-list');
@@ -1204,6 +1362,20 @@ function pageCount() {
 
 /** The row over the list: back to every project, the project and its count, the way out of
  *  the filters. */
+function createRequirement(parent = null) {
+  const project = state.project;
+  showCreateForm({ types: state.types, agents: options.responsibleAgent, parent,
+    project: state.projects.find(item => item.identifier === project) || { identifier: project }, userId: state.user?.userId,
+    submit: body => send('/requirements', { method: 'POST', body: JSON.stringify(body), params: [['project', project]] }),
+    created: async item => {
+      if (!root?.isConnected || state.project !== project) return;
+      await reload();
+      await selectRequirement(item.id || String(item.workPackageId));
+      notify('需求已创建，可拆分子任务分别认领');
+    }
+  });
+}
+
 function listHeader() {
   const header = el('div', 'mp-header');
   if (!fixedProject) {
@@ -1223,6 +1395,12 @@ function listHeader() {
   const current = state.projects.find(project => project.identifier === state.project);
   header.append(el('span', 'mp-header-title', current?.name ?? state.project));
   header.append(el('span', 'mp-count', state.loading ? '载入中…' : `${state.total} 条`));
+  const create = el('button', 'mp-action mp-is-primary', '＋ 新建需求');
+  create.type = 'button';
+  create.disabled = state.loading || !state.types.length;
+  if (state.permissions?.create === false) { create.disabled = true; create.title = '当前账号没有在此项目创建需求的权限'; }
+  create.onclick = () => createRequirement();
+  header.append(create);
   const narrowing = activeFilterCount(state);
   if (narrowing > 0) {
     const clear = el('button', 'mp-action mp-clear-filters', `清除筛选（${narrowing}）`);
@@ -1235,6 +1413,7 @@ function listHeader() {
       state.subject = '';
       state.ids = '';
       state.requirementId = '';
+      state.excludeStates = [];
       state.page = 1;
       state.openFilter = null;
       void reload();
@@ -1288,11 +1467,20 @@ function render() {
 // --- actions --------------------------------------------------------------------
 
 function syncUrl() {
-  if (fixedProject) return;
   const url = new URL(location.href);
-  if (state.project) url.searchParams.set('project', state.project);
-  else url.searchParams.delete('project');
-  history.replaceState(null, '', url);
+  if (!fixedProject) {
+    if (state.project) url.searchParams.set('project', state.project);
+    else url.searchParams.delete('project');
+  }
+  if (state.selected) url.searchParams.set('open', state.selected);
+  else url.searchParams.delete('open');
+  if (state.select?.state?.length === 1) url.searchParams.set('state', state.select.state[0]);
+  else url.searchParams.delete('state');
+  if (state.unclaimedOnly) url.searchParams.set('unclaimed', '1');
+  else url.searchParams.delete('unclaimed');
+  url.searchParams.delete('exclude_state');
+  for (const name of state.excludeStates ?? []) url.searchParams.append('exclude_state', name);
+  history.replaceState(history.state, '', url);
 }
 
 /**
@@ -1302,12 +1490,13 @@ function syncUrl() {
  * panel keeps showing "载入历史…" over data it already has.
  */
 async function loadHistory(reference) {
+  const view = state, project = state.project, container = root;
   try {
     const result = await request('/requirements/' + encodeURIComponent(reference) + '/activities');
-    if (state.selected !== reference) return;
+    if (state !== view || root !== container || !container.isConnected || state.project !== project || state.selected !== reference) return;
     state.history = result.items ?? [];
   } catch (error) {
-    if (state.selected !== reference) return;
+    if (state !== view || root !== container || !container.isConnected || state.project !== project || state.selected !== reference) return;
     state.history = [];
     notify(error.message, 'error');
   }
@@ -1315,15 +1504,25 @@ async function loadHistory(reference) {
 }
 
 async function selectRequirement(reference) {
+  const project = state.project;
+  const container = root;
+  const view = state;
+  const ticket = view.detailTicket = (view.detailTicket ?? 0) + 1;
+  state.detailFailure = null;
   sheet.opened();
   state.selected = reference;
+  syncUrl();
   state.detail = null;
   state.form = null;
   state.history = null;
   render();
   try {
-    state.detail = await request('/requirements/' + encodeURIComponent(reference));
+    const detail = await request('/requirements/' + encodeURIComponent(reference));
+    if (state !== view || view.detailTicket !== ticket || !container.isConnected || state.selected !== reference || state.project !== project || root !== container) return;
+    state.detail = detail;
   } catch (error) {
+    if (state !== view || view.detailTicket !== ticket || !container.isConnected || state.selected !== reference || state.project !== project || root !== container) return;
+    state.detailFailure = error.message;
     notify(error.message, 'error');
   }
   render();
@@ -1336,6 +1535,7 @@ function closeDetail() {
   state.selected = null;
   state.detail = null;
   state.expanded = false;
+  syncUrl();
   render();
 }
 
@@ -1345,11 +1545,30 @@ function selectProject(identifier) {
   state.selected = null;
   state.page = 1;
   state.detail = null;
+  state.permissions = null;
   syncUrl();
-  void reload();
+  void loadProject();
+}
+
+async function loadProject() {
+  const view = state, project = state.project, container = root;
+  state.loading = true; render();
+  try {
+    const meta = await request('/meta');
+    if (state !== view || state.project !== project || root !== container || !container.isConnected) return;
+    Object.assign(options, meta.options ?? {});
+    state.types = meta.types ?? []; state.permissions = meta.permissions ?? null;
+    await reload();
+  } catch (error) {
+    if (state !== view || state.project !== project || root !== container || !container.isConnected) return;
+    state.loading = false; notify(error.message, 'error'); render();
+  }
 }
 
 async function reload({ keepOpen = false } = {}) {
+  const view = state, project = view.project, container = root;
+  const ticket = view.listTicket = (view.listTicket ?? 0) + 1;
+  syncUrl();
   // Picking a value from a list is one decision and the popup closing after it is the
   // answer. Typing is not: closing it after the first keystroke that fetches would mean
   // the third character has nowhere to go.
@@ -1371,7 +1590,8 @@ async function reload({ keepOpen = false } = {}) {
     failure = error;
   }
   // Typed on meanwhile: the later search has the say.
-  if (typing && JSON.stringify(listParams(state)) !== asked) return;
+  if (state !== view || state.project !== project || root !== container || !container.isConnected ||
+      view.listTicket !== ticket || JSON.stringify(listParams(state)) !== asked) return;
   state.items = failure ? [] : result.items ?? [];
   state.total = failure ? 0 : result.total ?? state.items.length;
   if (failure) notify(failure.message, 'error');
@@ -1398,11 +1618,12 @@ function refreshRows() {
  * table meanwhile would throw away the reader's place in it.
  */
 async function refreshList() {
+  const view = state, project = view.project, container = root;
   const asked = JSON.stringify(listParams(state));
   try {
     const result = await request('/requirements', listParams(state));
     // The reader filtered or turned the page meanwhile; that load has the say.
-    if (JSON.stringify(listParams(state)) !== asked) return;
+    if (state !== view || state.project !== project || root !== container || !container.isConnected || JSON.stringify(listParams(state)) !== asked) return;
     state.items = result.items ?? [];
     state.total = result.total ?? state.items.length;
     const pages = pageCount();
@@ -1413,6 +1634,7 @@ async function refreshList() {
       return;
     }
   } catch (error) {
+    if (state !== view || state.project !== project || root !== container || !container.isConnected) return;
     notify(error.message, 'error');
   }
   render();
@@ -1421,11 +1643,13 @@ async function refreshList() {
 /** The open requirement again, keeping the tab and form the reader has open. */
 async function refreshDetail() {
   const reference = state.selected;
+  const view = state, project = view.project, container = root;
   try {
     const detail = await request('/requirements/' + encodeURIComponent(reference));
-    if (state.selected !== reference) return;
+    if (state !== view || state.project !== project || root !== container || !container.isConnected || state.selected !== reference) return;
     state.detail = detail;
   } catch (error) {
+    if (state !== view || state.project !== project || root !== container || !container.isConnected || state.selected !== reference) return;
     notify(error.message, 'error');
   }
   render();
@@ -1443,6 +1667,8 @@ async function mount() {
   apiBase = container.dataset.api ?? '';
   fixedProject = container.dataset.project || '';
   csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+  const requested = new URL(location.href).searchParams;
+  const initialOpen = requested.get('open');
   state = {
     project: fixedProject || new URL(location.href).searchParams.get('project') || '',
     projects: [],
@@ -1467,6 +1693,10 @@ async function mount() {
     expanded: false,
     types: []
   };
+  if (requested.get('state')) state.select.state = [requested.get('state')];
+  state.unclaimedOnly = requested.get('unclaimed') === '1';
+  state.excludeStates = requested.getAll('exclude_state');
+  const view = state;
 
   bodyNode = el('div', 'mp-body');
   container.append(bodyNode);
@@ -1479,6 +1709,8 @@ async function mount() {
 
   try {
     const session = await request('/session');
+    if (state !== view || root !== container || !container.isConnected) return;
+    state.user = session.user;
     state.projects = session.projects ?? [];
     state.openProjectUrl = session.openProjectUrl ?? '';
     // Opened without a project in its route: a link naming one wins, then the project
@@ -1490,21 +1722,17 @@ async function mount() {
       syncUrl();
     }
     rememberProject(state.project);
-    const meta = await request('/meta');
-    Object.assign(options, meta.options ?? {});
-    state.types = meta.types ?? [];
-    if (state.project) await reload();
+    if (state.project) await loadProject();
     else render();
+    if (state !== view || root !== container || !container.isConnected) return;
     // The home page links a requirement this way. The address drops it once opened, so a
     // reload shows the list rather than reopening the same record every time.
-    const open = new URL(location.href).searchParams.get('open');
+    const open = initialOpen;
     if (open && state.project) {
-      const url = new URL(location.href);
-      url.searchParams.delete('open');
-      history.replaceState(null, '', url);
       await selectRequirement(open);
     }
   } catch (error) {
+    if (state !== view || root !== container || !container.isConnected) return;
     render();
     notify(error.message, 'error');
   }

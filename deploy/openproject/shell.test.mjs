@@ -1,8 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createSheetHistory, forgetProject, rememberedProject, rememberProject, startingProject } from './assets/shell.js';
+import { createSheetHistory, createShell, forgetProject, rememberedProject, rememberProject, startingProject } from './assets/shell.js';
 
 const visible = [{ identifier: 'eva-project' }, { identifier: 'mila-3' }];
+
+test('a form submitted after switching projects keeps its captured project', async () => {
+  const original = { fetch: globalThis.fetch, location: globalThis.location };
+  const urls = [];
+  globalThis.location = { origin: 'https://eva.example' };
+  globalThis.fetch = async url => { urls.push(new URL(url)); return { ok: true, json: async () => ({}) }; };
+  try {
+    const shell = createShell({ apiBase: () => '/requirements/api', project: () => 'new-project', csrfToken: () => '' });
+    await shell.request('/requirements', { method: 'POST', params: [['project', 'original-project']], body: '{}' });
+    assert.deepEqual(urls[0].searchParams.getAll('project'), ['original-project']);
+    await shell.request('/requirements');
+    assert.equal(urls[1].searchParams.get('project'), 'new-project');
+  } finally {
+    globalThis.fetch = original.fetch;
+    if (original.location === undefined) delete globalThis.location; else globalThis.location = original.location;
+  }
+});
 
 // #181: whatever was chosen on the pool, the handoff page opened on Eva-Project.
 test('a page starts on the project last chosen on either page', () => {

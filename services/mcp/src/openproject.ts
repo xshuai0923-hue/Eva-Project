@@ -12,6 +12,8 @@ import type {
 } from "./types.js";
 
 export interface OpenProjectApi {
+  canCreateWorkPackages(projectId: number, userId: number): Promise<boolean>;
+  canEditWorkPackages(projectId: number, userId: number): Promise<boolean>;
   getProject(identifier: string | number): Promise<ProjectResource>;
   listProjectTypes(projectId: number): Promise<HalCollection<WorkPackageType>>;
   createProject(identifier: string, name: string): Promise<ProjectResource>;
@@ -62,6 +64,23 @@ export class OpenProjectHttpError extends Error {
 }
 
 export class OpenProjectClient implements OpenProjectApi {
+  async canCreateWorkPackages(projectId: number, userId: number): Promise<boolean> {
+    return this.hasCapability(projectId, userId, "work_packages/create");
+  }
+
+  async canEditWorkPackages(projectId: number, userId: number): Promise<boolean> {
+    return this.hasCapability(projectId, userId, "work_packages/update");
+  }
+
+  private async hasCapability(projectId: number, userId: number, action: string): Promise<boolean> {
+    const params = new URLSearchParams({ filters: JSON.stringify([
+      { principal: { operator: "=", values: [String(userId)] } },
+      { context: { operator: "=", values: [`w${projectId}`] } },
+      { action: { operator: "=", values: [action] } }
+    ]), pageSize: "1" });
+    const result = await this.request<HalCollection<unknown>>(`/api/v3/capabilities?${params}`);
+    return result.total > 0;
+  }
   private readonly authorization: string;
 
   constructor(

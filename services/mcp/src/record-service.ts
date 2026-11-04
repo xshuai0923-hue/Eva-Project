@@ -30,6 +30,30 @@ export class RequirementValidationError extends Error {
   }
 }
 
+export function requireLockVersion(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new RequirementValidationError("缺少或无效的记录版本，请刷新后重新确认");
+  }
+  return value;
+}
+
+const CLAIM_PREFIX = "eva-claim-v1:";
+
+export function boundClaimSession(userId: string, sessionId: string): string {
+  return CLAIM_PREFIX + JSON.stringify([userId, sessionId]);
+}
+
+function claimBinding(value: unknown): { userId: string; sessionId: string } | null {
+  if (typeof value !== "string" || !value.startsWith(CLAIM_PREFIX)) return null;
+  try {
+    const pair: unknown = JSON.parse(value.slice(CLAIM_PREFIX.length));
+    if (Array.isArray(pair) && pair.length === 2 && pair.every(item => typeof item === "string" && item.length > 0)) {
+      return { userId: pair[0], sessionId: pair[1] };
+    }
+  } catch { /* An unrecognised historical value never grants another user access. */ }
+  return null;
+}
+
 export const FIELD = {
   requirementId: "requirementId",
   requesterType: "requesterType",
@@ -91,6 +115,73 @@ function relationWorkPackageId(link: HalLink): number {
 export { hrefId, linkTitle, linkTitles, relationWorkPackageId };
 
 export abstract class OpenProjectRecordService {
+  private static readonly creations = new Map<string, Promise<unknown>>();
+
+  protected async serializeCreation<T>(project: string, id: string, run: () => Promise<T>): Promise<T> {
+    return this.serializeOperation(["record", project, id], run);
+  }
+
+  protected async serializeOperation<T>(scope: Array<string | number>, run: () => Promise<T>): Promise<T> {
+    const key = JSON.stringify(scope);
+    const previous = OpenProjectRecordService.creations.get(key);
+    const current = (async () => {
+      if (previous) await previous.catch(() => undefined);
+      return run();
+    })();
+    OpenProjectRecordService.creations.set(key, current);
+    try { return await current; }
+    finally {
+      if (OpenProjectRecordService.creations.get(key) === current) OpenProjectRecordService.creations.delete(key);
+    }
+  }
+
+  protected async assertCreatePermission(project: ProjectResource, principal: Principal): Promise<void> {
+    if (principal.role === "admin") return;
+    const userId = await this.openProjectUserId(principal);
+    if (userId === null || !await this.client.canCreateWorkPackages(project.id, userId)) {
+      throw new RequirementValidationError("当前账号没有在此项目创建任务的权限，请联系项目管理员");
+    }
+  }
+
+  protected async assertEditPermission(projectIdentifier: string, principal: Principal): Promise<void> {
+    if (principal.role === "admin") return;
+    const project = await this.visibleProject(projectIdentifier, principal);
+    const userId = await this.openProjectUserId(principal);
+    if (userId === null || !await this.client.canEditWorkPackages(project.id, userId)) {
+      throw new RequirementValidationError("当前账号没有在此项目处理任务的权限，请联系项目管理员");
+    }
+  }
+
+  /** Advisory UI capabilities; mutations still run their own fresh authorization. */
+  async projectAccess(identifier: string, principal: Principal): Promise<{ create: boolean; edit: boolean }> {
+    const project = await this.visibleProject(identifier, principal);
+    if (principal.role === "admin") return { create: true, edit: true };
+    const userId = await this.openProjectUserId(principal);
+    if (userId === null) return { create: false, edit: false };
+    const [create, edit] = await Promise.all([
+      this.client.canCreateWorkPackages(project.id, userId),
+      this.client.canEditWorkPackages(project.id, userId)
+    ]);
+    return { create, edit };
+  }
+
+  async recordAccess(reference: string | number, project: string, principal: Principal, sessionId: string) {
+    const item = await this.resolve(reference, project, principal);
+    this.assertReadable(item, principal);
+    const access = await this.projectAccess(project, principal);
+    const owner = principal.role === "admin" || this.readText(item, FIELD.ownerUserId) === principal.userId;
+    const ownClaim = this.matchesClaim(item, principal, sessionId);
+    const claimed = Boolean(this.readText(item, FIELD.claimedSession));
+    return {
+      ...access,
+      update: access.edit && (owner || ownClaim),
+      manage: access.edit && owner,
+      claim: access.edit && (!claimed || ownClaim),
+      release: access.edit && claimed && (owner || ownClaim),
+      upload: owner
+    };
+  }
+
   protected readonly projects = new Map<string, ProjectResource>();
   private readonly openProjectUserIds = new Map<string, number | null>();
 
@@ -117,6 +208,10 @@ export abstract class OpenProjectRecordService {
 
   protected readText(workPackage: WorkPackage, name: string): string | null {
     const value = workPackage[this.field(name).key];
+    if (name === FIELD.claimedSession) {
+      const binding = claimBinding(value);
+      if (binding) return binding.sessionId;
+    }
     // A long text field comes back as { raw, html }; everything else as a string.
     if (value && typeof value === "object" && "raw" in value) {
       const raw = (value as { raw?: unknown }).raw;
@@ -412,7 +507,7 @@ export abstract class OpenProjectRecordService {
   }
 
   protected assertExpectedVersion(workPackage: WorkPackage, expected?: number): void {
-    if (expected !== undefined && expected !== workPackage.lockVersion) {
+    if (requireLockVersion(expected) !== workPackage.lockVersion) {
       throw new RequirementConflictError(
         `Stale lockVersion: expected ${expected}, current ${workPackage.lockVersion}`
       );
@@ -439,9 +534,17 @@ export abstract class OpenProjectRecordService {
   }
 
   protected assertClaimOrOwner(workPackage: WorkPackage, principal: Principal, sessionId?: string): void {
-    const currentSession = this.readText(workPackage, FIELD.claimedSession);
-    if (currentSession && currentSession === sessionId) return;
+    if (this.matchesClaim(workPackage, principal, sessionId)) return;
     this.assertOwnerOrAdmin(workPackage, principal);
+  }
+
+  protected matchesClaim(workPackage: WorkPackage, principal: Principal, sessionId?: string): boolean {
+    if (!sessionId || this.readText(workPackage, FIELD.claimedSession) !== sessionId) return false;
+    const binding = claimBinding(workPackage[this.field(FIELD.claimedSession).key]);
+    if (binding) return binding.userId === principal.userId;
+    // Old claims have no trustworthy claimant identity. Only existing owner/admin
+    // rights apply; copying a historical session id must not create new rights.
+    return principal.role === "admin" || this.readText(workPackage, FIELD.ownerUserId) === principal.userId;
   }
 
   protected async updateWithConflict(id: number, payload: Record<string, unknown>): Promise<WorkPackage> {

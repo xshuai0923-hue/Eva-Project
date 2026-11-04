@@ -1,8 +1,11 @@
+import { requireLockVersion } from "./record-service.js";
+import { webRequirement, prepareWebHandoff } from "./web-create.js";
+import { readJson } from "./web-body.js";
 import { AgentConnections } from "./agent-connect.js";
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
-import { hostHeaderValidation, NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { hostHeaderValidation } from "@modelcontextprotocol/node";
 import { McpServer, type AuthInfo } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 
@@ -15,7 +18,7 @@ import {
   flushMemcached
 } from "./backup.js";
 import { loadConfig } from "./config.js";
-import { OpenProjectClient } from "./openproject.js";
+import { OpenProjectClient, OpenProjectHttpError } from "./openproject.js";
 import { PrincipalAdmin } from "./principal-admin.js";
 import { PrincipalConflictError, PrincipalStore } from "./principal-store.js";
 import { channelFromRequest, WEB_CHANNEL } from "./signature.js";
@@ -29,6 +32,7 @@ import {
   RequirementValidationError
 } from "./service.js";
 import type { HandoffSummary, Principal, RequirementSummary } from "./types.js";
+import { McpHttpEndpoint, MCP_MAX_TOOL_INPUT_ELEMENTS } from "./mcp-http.js";
 
 const config = loadConfig();
 const client = new OpenProjectClient(config.openProjectBaseUrl, config.openProjectApiToken);
@@ -292,6 +296,7 @@ function buildMcpServer(): McpServer {
   const server = new McpServer(
     { name: "eva-project-openproject", version: "0.2.0" },
     {
+      maxToolInputElements: MCP_MAX_TOOL_INPUT_ELEMENTS,
       instructions: "Always pass the project identifier recorded by the current project. Use list or tree for compact discovery and get only for full detail. Mutations return compact receipts, preserve OpenProject lockVersion conflicts and never replace another session's claim. requirements_* manage what should be built; handoff_* carry where a working session stopped. When continuing another session's work, call handoff_latest first and read full sections only if its digest is not enough. A handoff never stores requirement state, so a disagreement it reports is a prompt to update the requirement, not a conflict to resolve inside the handoff."
     }
   );
@@ -541,7 +546,7 @@ function buildMcpServer(): McpServer {
         label: z.string().min(1),
         scope: z.string().min(1),
         claimed_at: z.iso.datetime({ offset: true }),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       }),
       outputSchema: requirementReceiptOutputSchema
     },
@@ -554,7 +559,7 @@ function buildMcpServer(): McpServer {
       label: input.label,
       scope: input.scope,
       claimedAt: input.claimed_at,
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+      expectedLockVersion: input.expected_lock_version
       }, principalFromContext(context));
       return requirementReceipt(result.replayed ? "already_claimed" : "claimed", result.item, { replayed: result.replayed });
     })
@@ -570,7 +575,7 @@ function buildMcpServer(): McpServer {
         session_id: z.string().min(1),
         reason: z.string().min(1),
         released_at: z.iso.datetime({ offset: true }),
-        expected_lock_version: z.number().int().nonnegative().optional(),
+        expected_lock_version: z.number().int().nonnegative(),
         takeover: z.boolean().optional().describe("Release a claim held by a different session; requires requirement ownership and records the takeover. Use it when the claiming session is gone, never to preempt a live one.")
       }),
       outputSchema: requirementReceiptOutputSchema
@@ -581,7 +586,7 @@ function buildMcpServer(): McpServer {
       sessionId: input.session_id,
       reason: input.reason,
       releasedAt: input.released_at,
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {}),
+      expectedLockVersion: input.expected_lock_version,
       ...(input.takeover !== undefined ? { takeover: input.takeover } : {})
     }, principalFromContext(context))))
   );
@@ -597,7 +602,7 @@ function buildMcpServer(): McpServer {
         session_id: z.string().optional(),
         note: z.string().min(1),
         changed_at: z.iso.datetime({ offset: true }),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       }),
       outputSchema: requirementReceiptOutputSchema
     },
@@ -608,7 +613,7 @@ function buildMcpServer(): McpServer {
       note: input.note,
       changedAt: input.changed_at,
       ...(input.session_id ? { sessionId: input.session_id } : {}),
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+      expectedLockVersion: input.expected_lock_version
     }, principalFromContext(context))))
   );
 
@@ -627,7 +632,7 @@ function buildMcpServer(): McpServer {
         note: z.string().min(1),
         changed_at: z.iso.datetime({ offset: true }),
         session_id: z.string().optional(),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       }).refine(input => input.title !== undefined || input.type_id !== undefined || input.agent_understanding !== undefined ||
         input.scope !== undefined || input.acceptance_criteria !== undefined, {
         message: "At least one editable content field is required"
@@ -645,7 +650,7 @@ function buildMcpServer(): McpServer {
       ...(input.scope !== undefined ? { scope: input.scope } : {}),
       ...(input.acceptance_criteria !== undefined ? { acceptanceCriteria: input.acceptance_criteria } : {}),
       ...(input.session_id !== undefined ? { sessionId: input.session_id } : {}),
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+      expectedLockVersion: input.expected_lock_version
     }, principalFromContext(context))))
   );
 
@@ -658,7 +663,7 @@ function buildMcpServer(): McpServer {
         child: z.union([z.string(), z.number().int().positive()]),
         parent: z.union([z.string(), z.number().int().positive()]).nullable(),
         required_for_parent: z.boolean(),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       }),
       outputSchema: requirementReceiptOutputSchema
     },
@@ -669,7 +674,7 @@ function buildMcpServer(): McpServer {
         child: input.child,
         parent: input.parent,
         requiredForParent: input.required_for_parent,
-        ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+        expectedLockVersion: input.expected_lock_version
       }, principalFromContext(context)),
       { parent: input.parent, requiredForParent: input.required_for_parent }
     ))
@@ -825,7 +830,7 @@ function buildMcpServer(): McpServer {
         session_id: z.string().min(1),
         completed_at: z.iso.datetime({ offset: true }),
         evidence: z.array(evidenceSchema).min(1),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       }),
       outputSchema: requirementReceiptOutputSchema
     },
@@ -851,7 +856,7 @@ function buildMcpServer(): McpServer {
             acceptanceStatus: item.acceptance_status,
             acceptanceSource: item.acceptance_source
           }),
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+      expectedLockVersion: input.expected_lock_version
     }, principalFromContext(context))))
   );
 
@@ -916,6 +921,15 @@ function buildMcpServer(): McpServer {
     })
   );
 
+  server.registerTool("requirements_reopen", {
+    description: "Reopen a completed requirement with a reason. Preserves delivery history and resets claim and acceptance.",
+    inputSchema: z.object({ project: z.string().min(1), reference: z.union([z.string(), z.number()]),
+      reason: z.string().trim().min(1), lock_version: z.number().int().nonnegative() })
+  }, (input, context) => toolResult(() => requirements.reopen({
+    project: input.project, reference: input.reference, reason: input.reason,
+    changedAt: new Date().toISOString(), expectedLockVersion: input.lock_version
+  }, principalFromContext(context))));
+
   server.registerTool(
     "handoff_latest",
     {
@@ -965,7 +979,7 @@ function buildMcpServer(): McpServer {
         label: z.string().min(1),
         scope: z.string().min(1),
         claimed_at: z.iso.datetime({ offset: true }),
-        expected_lock_version: z.number().int().nonnegative().optional(),
+        expected_lock_version: z.number().int().nonnegative(),
         override: z.boolean().optional().describe("Claim despite a different expected agent; the override is recorded in history.")
       })
     },
@@ -978,7 +992,7 @@ function buildMcpServer(): McpServer {
         label: input.label,
         scope: input.scope,
         claimedAt: input.claimed_at,
-        ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {}),
+        expectedLockVersion: input.expected_lock_version,
         ...(input.override !== undefined ? { override: input.override } : {})
       }, principalFromContext(context));
       return handoffReceipt(result.replayed ? "already_claimed" : "claimed", result.item, { replayed: result.replayed });
@@ -995,7 +1009,7 @@ function buildMcpServer(): McpServer {
         session_id: z.string().min(1),
         reason: z.string().min(1),
         released_at: z.iso.datetime({ offset: true }),
-        expected_lock_version: z.number().int().nonnegative().optional(),
+        expected_lock_version: z.number().int().nonnegative(),
         takeover: z.boolean().optional().describe("Release a claim held by a different session. Use it when that session is gone, never to preempt a live one.")
       })
     },
@@ -1005,7 +1019,7 @@ function buildMcpServer(): McpServer {
       sessionId: input.session_id,
       reason: input.reason,
       releasedAt: input.released_at,
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {}),
+      expectedLockVersion: input.expected_lock_version,
       ...(input.takeover !== undefined ? { takeover: input.takeover } : {})
     }, principalFromContext(context))))
   );
@@ -1022,7 +1036,7 @@ function buildMcpServer(): McpServer {
         note: z.string().min(1).describe("Why it changed, recorded in the work package journal."),
         changed_at: z.iso.datetime({ offset: true }),
         session_id: z.string().optional(),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       })
     },
     (input, context) => toolResult(async () => handoffReceipt("section_updated", await handoffs.updateSection({
@@ -1033,7 +1047,7 @@ function buildMcpServer(): McpServer {
       note: input.note,
       changedAt: input.changed_at,
       ...(input.session_id ? { sessionId: input.session_id } : {}),
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+      expectedLockVersion: input.expected_lock_version
     }, principalFromContext(context))))
   );
 
@@ -1048,7 +1062,7 @@ function buildMcpServer(): McpServer {
         note: z.string().min(1),
         changed_at: z.iso.datetime({ offset: true }),
         session_id: z.string().optional(),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       })
     },
     (input, context) => toolResult(async () => {
@@ -1059,7 +1073,7 @@ function buildMcpServer(): McpServer {
         note: input.note,
         changedAt: input.changed_at,
         ...(input.session_id ? { sessionId: input.session_id } : {}),
-        ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+        expectedLockVersion: input.expected_lock_version
       }, principalFromContext(context));
       return handoffReceipt("todos_updated", result.item, { total: result.total, done: result.done });
     })
@@ -1076,7 +1090,7 @@ function buildMcpServer(): McpServer {
         note: z.string().min(1),
         changed_at: z.iso.datetime({ offset: true }),
         session_id: z.string().optional(),
-        expected_lock_version: z.number().int().nonnegative().optional()
+        expected_lock_version: z.number().int().nonnegative()
       })
     },
     (input, context) => toolResult(async () => handoffReceipt("state_updated", await handoffs.updateState({
@@ -1086,7 +1100,7 @@ function buildMcpServer(): McpServer {
       note: input.note,
       changedAt: input.changed_at,
       ...(input.session_id ? { sessionId: input.session_id } : {}),
-      ...(input.expected_lock_version !== undefined ? { expectedLockVersion: input.expected_lock_version } : {})
+      expectedLockVersion: input.expected_lock_version
     }, principalFromContext(context))))
   );
 
@@ -1116,12 +1130,7 @@ function buildMcpServer(): McpServer {
   return server;
 }
 
-const mcpServer = buildMcpServer();
-const transport = new NodeStreamableHTTPServerTransport({
-  sessionIdGenerator: undefined,
-  enableJsonResponse: true
-});
-await mcpServer.connect(transport);
+const mcpEndpoint = new McpHttpEndpoint(buildMcpServer);
 
 const validateHost = hostHeaderValidation(config.allowedHosts);
 
@@ -1143,21 +1152,6 @@ function sendStatic(response: ServerResponse, contentType: string, body: string,
     "Referrer-Policy": "no-referrer"
   });
   response.end(body);
-}
-
-async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = [];
-  let length = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    length += buffer.length;
-    if (length > 16_384) throw new Error("请求内容过大");
-    chunks.push(buffer);
-  }
-  if (chunks.length === 0) return {};
-  const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("请求格式无效");
-  return value as Record<string, unknown>;
 }
 
 function validMutationOrigin(request: IncomingMessage): boolean {
@@ -1235,44 +1229,78 @@ async function handleHandoffApi(request: IncomingMessage, response: ServerRespon
         user: principal,
         project,
         openProjectUrl: config.openProjectPublicUrl,
-        projects: (await requirements.listProjects(principal, { pageSize: 100 })).items
+        projects: await requirements.everyVisibleProject(principal)
       });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/handoff/api/handoffs") {
+      const input = await prepareWebHandoff(project, await readJson(request, 1024 * 1024), principal, {
+        requirement: reference => requirements.get(reference, project, principal, ["用户原文"]),
+        handoff: async reference => {
+          const earlier = await handoffs.get({ project, reference }, principal);
+          return { thread: (earlier.handoff as HandoffSummary).thread };
+        }
+      });
+      const result = await handoffs.save(input, principal);
+      sendJson(response, result.replayed ? 200 : 201, result);
       return;
     }
 
     if (request.method === "GET" && pathname === "/handoff/api/handoffs") {
       const state = url.searchParams.get("state");
       const thread = url.searchParams.get("thread");
-      sendJson(response, 200, await handoffs.list({
+      const query = url.searchParams.get("q");
+      const cursor = url.searchParams.get("cursor");
+      const records = await handoffs.list({
         project,
         ...(state ? { state } : {}),
         ...(thread ? { thread } : {}),
-        pageSize: 50
-      }, principal));
+        ...(query ? { query } : {}),
+        ...(cursor ? { cursor } : {}),
+        pageSize: Number(url.searchParams.get("page_size") ?? 50)
+      }, principal);
+      sendJson(response, 200, { ...records, permissions: await handoffs.projectAccess(project, principal) });
       return;
     }
 
     const detail = pathname.match(/^\/handoff\/api\/handoffs\/([^/]+)$/);
     if (request.method === "GET" && detail) {
-      sendJson(response, 200, await handoffs.get({
+      const record = await handoffs.get({
         project,
         reference: decodeURIComponent(detail[1] ?? "")
-      }, principal));
+      }, principal);
+      sendJson(response, 200, { ...record, permissions: await handoffs.recordAccess(
+        decodeURIComponent(detail[1] ?? ""), project, principal, `web:${principal.userId}`) });
       return;
     }
 
-    const action = pathname.match(/^\/handoff\/api\/handoffs\/([^/]+)\/(todos|state|release|sections)$/);
+    const action = pathname.match(/^\/handoff\/api\/handoffs\/([^/]+)\/(todos|state|release|sections|claim)$/);
     if (request.method === "POST" && action) {
       const reference = decodeURIComponent(action[1] ?? "");
-      const body = await readJson(request);
-      const lockVersion = typeof body.lockVersion === "number" ? { expectedLockVersion: body.lockVersion } : {};
+      const body = await readJson(request, 1024 * 1024);
+      const lockVersion = { expectedLockVersion: requireLockVersion(body.lockVersion) };
+
+      const webSession = `web:${principal.userId}`;
+      if (action[2] === "claim" || (action[2] === "state" && body.state === "已接手")) {
+        if (!Number.isInteger(body.lockVersion) || Number(body.lockVersion) < 0) {
+          throw new RequirementValidationError("缺少记录版本，请刷新后再接手");
+        }
+        const result = await handoffs.claim({
+          project, reference, agent: "", sessionId: webSession,
+          label: principal.displayName, scope: "在网页接手交接", claimedAt: now(),
+          override: body.override === true, ...lockVersion
+        }, principal);
+        sendJson(response, 200, { handoff: result.item, replayed: result.replayed });
+        return;
+      }
 
       if (action[2] === "todos") {
         if (typeof body.todos !== "string") throw new Error("待办内容无效");
         const result = await handoffs.updateTodos({
           project, reference, todos: body.todos,
           note: typeof body.note === "string" && body.note ? body.note : "在网页上更新待办",
-          changedAt: now(), ...lockVersion
+          changedAt: now(), sessionId: webSession, ...lockVersion
         }, principal);
         sendJson(response, 200, { handoff: result.item, total: result.total, done: result.done });
         return;
@@ -1285,7 +1313,7 @@ async function handleHandoffApi(request: IncomingMessage, response: ServerRespon
             section: body.section as never,
             content: body.content,
             note: "在网页上编辑正文",
-            changedAt: now(), ...lockVersion
+            changedAt: now(), sessionId: webSession, ...lockVersion
           }, principal)
         });
         return;
@@ -1296,17 +1324,17 @@ async function handleHandoffApi(request: IncomingMessage, response: ServerRespon
           handoff: await handoffs.updateState({
             project, reference, state: body.state,
             note: typeof body.note === "string" && body.note ? body.note : "在网页上更新状态",
-            changedAt: now(), ...lockVersion
+            changedAt: now(), sessionId: webSession, ...lockVersion
           }, principal)
         });
         return;
       }
-      // Releasing from the web is always a takeover: a person is not the claiming session.
+      // The current person releases their own web claim; takeover retains the owner/admin check.
       sendJson(response, 200, {
         handoff: await handoffs.release({
           project, reference,
-          sessionId: `web:${principal.userId}`,
-          reason: typeof body.reason === "string" && body.reason ? body.reason : "在网页上接管释放",
+          sessionId: webSession,
+          reason: typeof body.reason === "string" ? body.reason : "",
           releasedAt: now(), takeover: true, ...lockVersion
         }, principal)
       });
@@ -1317,7 +1345,7 @@ async function handleHandoffApi(request: IncomingMessage, response: ServerRespon
   } catch (error) {
     const conflict = error instanceof RequirementConflictError;
     sendJson(response, conflict ? 409 : 400, {
-      error: error instanceof Error ? error.message : "操作失败",
+      error: browserError(error),
       ...(conflict ? { conflict: true } : {})
     });
   }
@@ -1393,15 +1421,23 @@ async function handleRequirementsApi(
         user: principal,
         project,
         openProjectUrl: config.openProjectPublicUrl,
-        projects: (await requirements.listProjects(principal, { pageSize: 100 })).items
+        projects: await requirements.everyVisibleProject(principal)
       });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/requirements/api/requirements") {
+      const input = webRequirement(project, await readJson(request, 1024 * 1024), principal);
+      const result = await requirements.create(input, principal, { webCreation: true });
+      sendJson(response, result.replayed ? 200 : 201, result);
       return;
     }
 
     if (request.method === "GET" && pathname === "/requirements/api/meta") {
       sendJson(response, 200, {
         ...(await requirements.types(project, principal)),
-        options: requirements.fieldOptions()
+        options: requirements.fieldOptions(),
+        permissions: await requirements.projectAccess(project, principal)
       });
       return;
     }
@@ -1417,6 +1453,7 @@ async function handleRequirementsApi(
       }, principal);
       sendJson(response, 200, {
         ...dashboard,
+        endedStates: [...config.fieldMap.completionStates, "取消"],
         handoffs: await pendingHandoffs(dashboard.projects.map(project => project.identifier), principal)
       });
       return;
@@ -1483,9 +1520,11 @@ async function handleRequirementsApi(
         .flatMap(value => value.split(","))
         .map(value => value.trim())
         .filter(Boolean);
-      sendJson(response, 200, await requirements.get(
+      const record = await requirements.get(
         decodeURIComponent(detail[1]), project, principal,
-        wanted.length ? wanted : undefined));
+        wanted.length ? wanted : undefined);
+      sendJson(response, 200, { ...record, permissions: await requirements.recordAccess(
+        decodeURIComponent(detail[1]), project, principal, `web:${principal.userId}`) });
       return;
     }
 
@@ -1497,14 +1536,13 @@ async function handleRequirementsApi(
     }
 
     const action = pathname.match(
-      /^\/requirements\/api\/requirements\/([^/]+)\/(state|content|comment|claim|release|complete)$/);
+      /^\/requirements\/api\/requirements\/([^/]+)\/(state|content|comment|claim|release|complete|reopen|attachment|parent|dependency)$/);
     if (request.method === "POST" && action?.[1] && action[2]) {
       const reference = decodeURIComponent(action[1]);
-      const body = await readJson(request);
+      const body = await readJson(request, action[2] === "attachment" ? 32 * 1024 * 1024 : 1024 * 1024);
       const note = typeof body.note === "string" && body.note ? body.note : "在网页上修改";
-      const lockVersion = typeof body.lockVersion === "number"
-        ? { expectedLockVersion: body.lockVersion }
-        : {};
+      const lockVersion = ["comment", "attachment", "dependency"].includes(action[2]) ? {}
+        : { expectedLockVersion: requireLockVersion(body.lockVersion) };
       const changedAt = new Date().toISOString();
 
       // Claiming, releasing and completing already exist on the service with their own
@@ -1513,6 +1551,34 @@ async function handleRequirementsApi(
       // A person is not a session, so the web acts under one named after them, the same
       // convention the handoff page uses.
       const webSession = `web:${principal.userId}`;
+      if (action[2] === "attachment") {
+        const input = z.object({ fileName: z.string(), content: z.string(), contentType: z.string().optional() }).strict().parse(body);
+        const attachment = await requirements.uploadAttachment({ project, reference, fileName: input.fileName,
+          content: input.content, ...(input.contentType ? { contentType: input.contentType } : {}), encoding: "base64" }, principal);
+        sendJson(response, 201, { attachment });
+        return;
+      }
+      if (action[2] === "parent") {
+        const input = z.object({ parent: z.number().int().positive().nullable(), requiredForParent: z.boolean(), lockVersion: z.number().int().nonnegative() }).strict().parse(body);
+        sendJson(response, 200, { requirement: await requirements.setParent({
+          project, child: reference, parent: input.parent, requiredForParent: input.requiredForParent, ...lockVersion
+        }, principal) });
+        return;
+      }
+      if (action[2] === "dependency") {
+        const input = z.object({ prerequisite: z.number().int().positive() }).strict().parse(body);
+        sendJson(response, 201, { relation: await requirements.addDependency({
+          project, prerequisite: input.prerequisite, dependent: reference
+        }, principal) });
+        return;
+      }
+      if (action[2] === "reopen") {
+        if (typeof body.reason !== "string") throw new RequirementValidationError("请填写重新打开的原因");
+        sendJson(response, 200, { requirement: await requirements.reopen({
+          project, reference, reason: body.reason, changedAt, ...lockVersion
+        }, principal) });
+        return;
+      }
       if (action[2] === "claim") {
         const result = await requirements.claim({
           project, reference,
@@ -1571,9 +1637,13 @@ async function handleRequirementsApi(
       sendJson(response, 200, {
         requirement: await requirements.updateContent({
           project, reference, note, changedAt, ...lockVersion,
+          sessionId: webSession,
           ...(typeof body.responsibleAgent === "string" ? { responsibleAgent: body.responsibleAgent } : {}),
           ...(typeof body.title === "string" ? { title: body.title } : {}),
-          ...(typeof body.typeId === "number" ? { typeId: body.typeId } : {})
+          ...(typeof body.typeId === "number" ? { typeId: body.typeId } : {}),
+          ...(typeof body.agentUnderstanding === "string" ? { agentUnderstanding: body.agentUnderstanding } : {}),
+          ...(typeof body.scope === "string" ? { scope: body.scope } : {}),
+          ...(typeof body.acceptanceCriteria === "string" ? { acceptanceCriteria: body.acceptanceCriteria } : {})
         }, principal)
       });
       return;
@@ -1583,10 +1653,28 @@ async function handleRequirementsApi(
   } catch (error) {
     const conflict = error instanceof RequirementConflictError;
     sendJson(response, conflict ? 409 : 400, {
-      error: error instanceof Error ? error.message : "操作失败",
+      error: browserError(error),
       ...(conflict ? { conflict: true } : {})
     });
   }
+}
+
+function browserError(error: unknown): string {
+  if (error instanceof RequirementConflictError) {
+    if (/already claimed/i.test(error.message)) return "此记录已被其他会话接手，请刷新查看当前处理人";
+    if (/lockVersion/i.test(error.message)) return "记录已被其他人修改，请刷新后重新确认";
+  }
+  if (error instanceof z.ZodError) return error.issues.map(issue => issue.message).join("；");
+  if (error instanceof OpenProjectHttpError) {
+    if (error.status === 409) return "记录已被其他人修改，请刷新后重新确认";
+    if (error.status === 403) return "当前账号没有执行此操作的权限";
+    if (error.status === 422) {
+      const body = error.body as { message?: unknown } | null;
+      return `保存未通过校验，请检查必填字段和状态工作流。${typeof body?.message === "string" ? body.message : ""}`;
+    }
+    return "任务服务暂时不可用，请稍后重试";
+  }
+  return error instanceof Error ? error.message : "操作失败，请稍后重试";
 }
 
 async function handleAdminApi(request: IncomingMessage, response: ServerResponse, pathname: string): Promise<void> {
@@ -1862,7 +1950,7 @@ async function handleHttpRequest(request: IncomingMessage, response: ServerRespo
       via: channelFromRequest(request.headers["user-agent"], typeof request.headers["x-eva-agent"] === "string" ? request.headers["x-eva-agent"] : undefined)
     }
   };
-  void transport.handleRequest(request, response);
+  await mcpEndpoint.handle(request, response);
 }
 
 const httpServer = createServer((request, response) => {
@@ -1882,7 +1970,7 @@ if (backups) {
 async function shutdown(): Promise<void> {
   backups?.stop();
   httpServer.close();
-  await mcpServer.close();
+  await mcpEndpoint.close();
 }
 
 process.on("SIGTERM", () => void shutdown());

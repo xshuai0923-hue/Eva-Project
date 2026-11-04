@@ -17,7 +17,7 @@
 //   node deploy/openproject/asset-versions.mjs check   # exit 1 if any version is stale
 import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
@@ -70,7 +70,7 @@ export function restamp(text, from, { assets = ASSETS, read = readFileSync, exis
 export function check(root = ROOT) {
   const assets = join(root, 'assets');
   return referencingFiles(root).flatMap((path) =>
-    restamp(readFileSync(path, 'utf8'), path, { assets }).problems.map((problem) => `${relative(root, path)}: ${problem}`)
+    restamp(readFileSync(path, 'utf8'), path, { assets }).problems.map((problem) => `${relative(root, path).replaceAll('\\', '/')}: ${problem}`)
   );
 }
 
@@ -87,7 +87,7 @@ export function stamp(root = ROOT) {
       const before = readFileSync(path, 'utf8');
       const { text, problems } = restamp(before, path, { assets });
       const missing = problems.filter((problem) => problem.endsWith('no such asset'));
-      if (missing.length) throw new Error(`${relative(root, path)}: ${missing.join('; ')}`);
+      if (missing.length) throw new Error(`${relative(root, path).replaceAll('\\', '/')}: ${missing.join('; ')}`);
       if (text === before) continue;
       // writeFileSync truncates and rewrites the same inode. The .rb files are single-file
       // bind mounts; replacing the inode (as `sed -i` or an editor's save-and-rename does)
@@ -101,7 +101,7 @@ export function stamp(root = ROOT) {
   throw new Error('asset versions did not settle: the assets import each other in a cycle');
 }
 
-if (import.meta.main) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
   const command = process.argv[2];
   if (command === 'stamp') {
     const changed = stamp();

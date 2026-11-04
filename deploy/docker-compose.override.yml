@@ -32,6 +32,7 @@ services:
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_handoff.rb:/app/config/initializers/evaproject_handoff.rb:ro"
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_requirements.rb:/app/config/initializers/evaproject_requirements.rb:ro"
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_project_types.rb:/app/config/initializers/evaproject_project_types.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_thread_guard.rb:/app/config/initializers/evaproject_thread_guard.rb:ro"
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_tokens.rb:/app/config/initializers/evaproject_tokens.rb:ro"
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_backup.rb:/app/config/initializers/evaproject_backup.rb:ro"
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_theme.rb:/app/config/initializers/evaproject_theme.rb:ro"
@@ -55,6 +56,9 @@ services:
 
     volumes:
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_password_policy.rb:/app/config/initializers/evaproject_password_policy.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_project_types.rb:/app/config/initializers/evaproject_project_types.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_thread_guard.rb:/app/config/initializers/evaproject_thread_guard.rb:ro"
+      - "${EVAPROJECT_RUNTIME}:/evaproject-runtime:ro"
 
   cron:
     environment:
@@ -71,6 +75,9 @@ services:
 
     volumes:
       - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_password_policy.rb:/app/config/initializers/evaproject_password_policy.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_project_types.rb:/app/config/initializers/evaproject_project_types.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_thread_guard.rb:/app/config/initializers/evaproject_thread_guard.rb:ro"
+      - "${EVAPROJECT_RUNTIME}:/evaproject-runtime:ro"
 
   seeder:
     environment:

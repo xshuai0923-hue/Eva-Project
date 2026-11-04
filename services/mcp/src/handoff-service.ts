@@ -8,8 +8,11 @@
 // — never silently stored twice.
 
 import { OpenProjectHttpError } from "./openproject.js";
+import { WEB_CHANNEL } from "./signature.js";
 import {
   FIELD,
+  boundClaimSession,
+  requireLockVersion,
   hrefId,
   linkTitle,
   OpenProjectRecordService,
@@ -118,6 +121,8 @@ export class HandoffService extends OpenProjectRecordService {
       todoDone: this.readInt(workPackage, HANDOFF_FIELD.todoDone),
       claimedAgent: this.readList(workPackage, FIELD.claimedAgent)[0] ?? null,
       claimedSession: this.readText(workPackage, FIELD.claimedSession),
+      claimLabel: this.readText(workPackage, FIELD.claimLabel),
+      claimedAt: this.readText(workPackage, FIELD.claimedAt),
       sourceSessionId: this.readText(workPackage, FIELD.sourceSessionId),
       visibility: (this.readList(workPackage, FIELD.visibility)[0] as "公开" | "私有") ?? null,
       ownerUserId: this.readText(workPackage, FIELD.ownerUserId),
@@ -228,8 +233,16 @@ export class HandoffService extends OpenProjectRecordService {
   }
 
   async save(input: SaveHandoffInput, principal: Principal): Promise<{ replayed: boolean; item: HandoffSummary }> {
+    const scope = await this.visibleProject(input.project, principal);
+    return this.serializeOperation(["handoff-thread", scope.id, input.thread], () =>
+      this.serializeCreation(String(scope.id), input.id, () => this.saveUnlocked(input, principal)));
+  }
+
+  private async saveUnlocked(input: SaveHandoffInput, principal: Principal): Promise<{ replayed: boolean; item: HandoffSummary }> {
+    if (!input.title.trim() || !input.id.trim()) throw new RequirementValidationError("标题和交接 ID 不能为空");
     const existing = await this.findByHandoffId(input.id, input.project, principal);
     if (existing) {
+      this.assertOwnerOrAdmin(existing, principal);
       // Resending the same record is an idempotent retry. Resending the same id with
       // different content is someone trying to correct a handoff, and silently handing
       // back the old record would throw their correction away without saying so.
@@ -239,7 +252,12 @@ export class HandoffService extends OpenProjectRecordService {
           `Handoff ${input.id} already exists and ${changed.join(", ")} differ; use handoff_update_section to edit it, or save a new id and declare it the successor`
         );
       }
-      return { replayed: true, item: this.summarize(existing) };
+      if (this.readText(existing, HANDOFF_FIELD.thread) !== input.thread) {
+        throw new RequirementConflictError("交接线程与已保存记录不同");
+      }
+      if (this.readList(existing, HANDOFF_FIELD.state)[0] !== "草稿") {
+        return { replayed: true, item: this.summarize(existing) };
+      }
     }
 
     const pending = await this.awaitingOnThread(input.thread, input.project, principal);
@@ -249,11 +267,31 @@ export class HandoffService extends OpenProjectRecordService {
       );
     }
 
+    const targets = new Map<number, WorkPackage>();
+    if (pending && pending.id !== existing?.id) {
+      this.assertOwnerOrAdmin(pending, principal);
+      targets.set(pending.id, pending);
+    }
+    const previous = input.previous ?? (existing ? this.readText(existing, HANDOFF_FIELD.previous) : null);
+    if (previous) {
+      const earlier = await this.resolveHandoff(previous, input.project, principal);
+      if (this.readText(earlier, HANDOFF_FIELD.thread) !== input.thread || earlier.id === existing?.id) {
+        throw new RequirementValidationError("上一任交接必须属于同一线程且不能指向自身");
+      }
+      const state = this.readList(earlier, HANDOFF_FIELD.state)[0];
+      if (state !== "已归档" && state !== "已作废") {
+        this.assertClaimOrOwner(earlier, principal, input.sourceSessionId);
+        targets.set(earlier.id, earlier);
+      }
+    }
+    if (targets.size) await this.assertEditPermission(input.project, principal);
+
     const entries = parseTodoSection(input.sections.待办 ?? "");
     const todos = serializeTodoSection(entries);
     const counts = countTodos(entries);
 
     const scope = await this.visibleProject(input.project, principal);
+    await this.assertCreatePermission(scope, principal);
     const payload: Record<string, unknown> = {
       subject: input.title,
       description: { format: "markdown", raw: this.description(input, todos) },
@@ -265,38 +303,32 @@ export class HandoffService extends OpenProjectRecordService {
     this.writeField(payload, FIELD.modules, input.modules);
     this.writeField(payload, FIELD.sourceSessionId, input.sourceSessionId);
     this.writeField(payload, HANDOFF_FIELD.thread, input.thread);
-    this.writeField(payload, HANDOFF_FIELD.state, AWAITING);
+    this.writeField(payload, HANDOFF_FIELD.state, targets.size ? "草稿" : AWAITING);
     this.writeField(payload, HANDOFF_FIELD.repository, input.repository);
     this.writeField(payload, HANDOFF_FIELD.branch, input.branch);
     this.writeField(payload, HANDOFF_FIELD.baseCommit, input.baseCommit);
     this.writeField(payload, HANDOFF_FIELD.todoTotal, counts.total);
     this.writeField(payload, HANDOFF_FIELD.todoDone, counts.done);
-    if (input.previous !== undefined) this.writeField(payload, HANDOFF_FIELD.previous, input.previous);
+    const predecessor = previous ?? (pending ? this.readText(pending, FIELD.requirementId) : null);
+    if (predecessor) this.writeField(payload, HANDOFF_FIELD.previous, predecessor);
     this.writeField(payload, HANDOFF_FIELD.expectedAgent, input.expectedAgent ?? "不限");
-    this.statusLink(payload, AWAITING);
+    this.statusLink(payload, targets.size ? "草稿" : AWAITING);
 
-    const created = await this.client.createWorkPackage(scope.id, payload);
-
+    let created = existing ?? await this.client.createWorkPackage(scope.id, payload);
     const now = new Date().toISOString();
-    if (pending) {
-      await this.transition(pending, "已归档", `被 ${input.id} 接续，自动归档。`, now);
-    }
-    // Naming a predecessor means this handoff continues it, so the predecessor is done:
-    // otherwise a claimed handoff stays 已接手 forever and the thread shows two live
-    // records. Already-archived ones are left alone.
-    if (input.previous && input.previous !== (pending && this.readText(pending, FIELD.requirementId))) {
-      try {
-        const earlier = await this.resolveHandoff(input.previous, input.project, principal);
-        const state = this.readList(earlier, HANDOFF_FIELD.state)[0];
-        if (state && state !== "已归档" && state !== "已作废") {
-          await this.transition(earlier, "已归档", `被 ${input.id} 接续，自动归档。`, now);
-        }
-      } catch {
-        // A predecessor that cannot be read is recorded as a pointer only; the new
-        // handoff is already saved and must not fail because of it.
+    try {
+      for (const earlier of targets.values()) {
+        await this.transition(earlier, "已归档", `被 ${input.id} 接续，自动归档。`, now);
       }
+      if (this.readList(created, HANDOFF_FIELD.state)[0] === "草稿") {
+        created = await this.transition(created, AWAITING, "前任交接已归档，开放接手。", now);
+      }
+    } catch (error) {
+      throw new RequirementConflictError(
+        `交接 ${input.id}（#${created.id}）已保存为草稿，接续未完成。刷新核对后可用相同创建请求继续；${error instanceof Error ? error.message : "保存失败"}`
+      );
     }
-    return { replayed: false, item: this.summarize(created) };
+    return { replayed: existing !== null, item: this.summarize(created) };
   }
 
   /** Which parts of an existing handoff a repeated save would have changed. */
@@ -306,10 +338,10 @@ export class HandoffService extends OpenProjectRecordService {
     const changed: string[] = [];
     if (normalise(existing.subject) !== normalise(input.title)) changed.push("标题");
     for (const name of HANDOFF_PROSE_SECTIONS) {
-      if (normalise(this.readMarkdownSection(raw, name)) !== normalise(input.sections[name])) changed.push(name);
+      if ((normalise(this.readMarkdownSection(raw, name)) || "尚无。") !== (normalise(input.sections[name]) || "尚无。")) changed.push(name);
     }
     const todos = serializeTodoSection(parseTodoSection(input.sections.待办 ?? ""));
-    if (normalise(this.readMarkdownSection(raw, "待办")) !== normalise(todos)) changed.push("待办");
+    if ((normalise(this.readMarkdownSection(raw, "待办")) || "尚无。") !== (normalise(todos) || "尚无。")) changed.push("待办");
     return changed;
   }
 
@@ -399,14 +431,23 @@ export class HandoffService extends OpenProjectRecordService {
     expectedLockVersion?: number;
     override?: boolean;
   }, principal: Principal): Promise<{ replayed: boolean; item: HandoffSummary }> {
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolveHandoff(input.reference, input.project, principal);
-    this.assertExpectedVersion(workPackage, input.expectedLockVersion);
-
+    const state = this.readList(workPackage, HANDOFF_FIELD.state)[0];
+    if (state === "已归档" || state === "已作废") {
+      throw new RequirementValidationError("已归档或已作废的交接无法接手");
+    }
+    // A same-session replay may return without writing, even after its original
+    // version was consumed, but the caller must still supply a valid version.
+    requireLockVersion(input.expectedLockVersion);
     const current = this.readText(workPackage, FIELD.claimedSession);
-    if (current === input.sessionId) return { replayed: true, item: this.summarize(workPackage) };
+    if (this.matchesClaim(workPackage, principal, input.sessionId)) return { replayed: true, item: this.summarize(workPackage) };
+    this.assertExpectedVersion(workPackage, input.expectedLockVersion);
     if (current) {
       throw new RequirementConflictError(`Handoff is already claimed by session ${current}`);
     }
+    const human = principal.via === WEB_CHANNEL && input.sessionId === `web:${principal.userId}` && !input.agent;
+    if (!input.agent && !human) throw new RequirementValidationError("请指定接手 Agent");
 
     // Advisory, not enforced: the server cannot tell which agent is calling. It stops an
     // accidental pickup, and an intentional one is recorded rather than blocked.
@@ -421,13 +462,13 @@ export class HandoffService extends OpenProjectRecordService {
       lockVersion: workPackage.lockVersion,
       description: {
         format: "markdown",
-        raw: `${workPackage.description?.raw ?? ""}\n\n## 变更记录\n\n- ${input.claimedAt}：由 ${input.agent} Session ${input.sessionId} 领取。${
+        raw: `${workPackage.description?.raw ?? ""}\n\n## 变更记录\n\n- ${input.claimedAt}：由 ${principal.displayName}（${principal.userId}）${human ? "在网页接手" : `${input.agent} Session ${input.sessionId} 领取`}。${
           expected && expected !== "不限" && expected !== input.agent ? `覆盖期望接手 Agent ${expected}。` : ""
         }${input.scope}`
       }
     };
-    this.writeField(payload, FIELD.claimedAgent, input.agent);
-    this.writeField(payload, FIELD.claimedSession, input.sessionId);
+    this.writeField(payload, FIELD.claimedAgent, input.agent || null);
+    this.writeField(payload, FIELD.claimedSession, boundClaimSession(principal.userId, input.sessionId));
     this.writeField(payload, FIELD.claimLabel, input.label);
     this.writeField(payload, FIELD.claimedAt, input.claimedAt);
     this.writeField(payload, FIELD.claimScope, input.scope);
@@ -445,13 +486,17 @@ export class HandoffService extends OpenProjectRecordService {
     expectedLockVersion?: number;
     takeover?: boolean;
   }, principal: Principal): Promise<HandoffSummary> {
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolveHandoff(input.reference, input.project, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
     const current = this.readText(workPackage, FIELD.claimedSession);
     if (!current) return this.summarize(workPackage);
+    if (!input.reason.trim()) throw new RequirementValidationError("请填写释放原因");
+    const state = this.readList(workPackage, HANDOFF_FIELD.state)[0];
+    if (state === "已归档" || state === "已作废") throw new RequirementValidationError("归档或作废后不能释放接手");
 
     // Without this, a session that ends mid-work strands its thread forever.
-    const takeover = current !== input.sessionId;
+    const takeover = !this.matchesClaim(workPackage, principal, input.sessionId);
     if (takeover) {
       if (!input.takeover) {
         throw new RequirementConflictError(
@@ -490,6 +535,7 @@ export class HandoffService extends OpenProjectRecordService {
     sessionId?: string;
     expectedLockVersion?: number;
   }, principal: Principal): Promise<{ item: HandoffSummary; total: number; done: number }> {
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolveHandoff(input.reference, input.project, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
     this.assertClaimOrOwner(workPackage, principal, input.sessionId);
@@ -531,6 +577,7 @@ export class HandoffService extends OpenProjectRecordService {
     if (!(HANDOFF_PROSE_SECTIONS as readonly string[]).includes(input.section)) {
       throw new RequirementValidationError("Use updateTodos to change the todo list");
     }
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolveHandoff(input.reference, input.project, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
     this.assertClaimOrOwner(workPackage, principal, input.sessionId);
@@ -559,11 +606,19 @@ export class HandoffService extends OpenProjectRecordService {
     sessionId?: string;
     expectedLockVersion?: number;
   }, principal: Principal): Promise<HandoffSummary> {
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolveHandoff(input.reference, input.project, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
     this.assertClaimOrOwner(workPackage, principal, input.sessionId);
     if (!this.map.handoffStatusHrefs?.[input.state]) {
       throw new RequirementValidationError(`Unknown handoff state: ${input.state}`);
+    }
+    const currentSession = this.readText(workPackage, FIELD.claimedSession);
+    if (input.state === "已接手" && !currentSession) {
+      throw new RequirementValidationError("请使用接手交接操作，登记接手人后进入已接手");
+    }
+    if ((input.state === "待接手" || input.state === "草稿") && currentSession) {
+      throw new RequirementValidationError("请先释放接手，再调整为待接手或草稿");
     }
     return this.summarize(await this.transition(workPackage, input.state, input.note, input.changedAt));
   }
@@ -571,12 +626,14 @@ export class HandoffService extends OpenProjectRecordService {
   async list(input: {
     project: string;
     thread?: string;
+    query?: string;
     state?: string;
     unclaimed?: boolean;
     cursor?: string;
     pageSize?: number;
   }, principal: Principal): Promise<{ items: HandoffSummary[]; nextCursor: string | null; total: number }> {
     const pageSize = Math.min(Math.max(input.pageSize ?? 20, 1), 50);
+    if (!Number.isSafeInteger(pageSize)) throw new RequirementValidationError("Invalid page size");
     const offset = input.cursor ? Number(input.cursor) : 1;
     if (!Number.isInteger(offset) || offset < 1) throw new RequirementValidationError("Invalid cursor");
 
@@ -610,6 +667,9 @@ export class HandoffService extends OpenProjectRecordService {
 
     let items = all.filter(item => this.canRead(item, principal));
     if (input.thread) items = items.filter(item => this.readText(item, HANDOFF_FIELD.thread) === input.thread);
+    const query = input.query?.trim().toLocaleLowerCase();
+    if (query) items = items.filter(item => [item.subject, this.readText(item, FIELD.requirementId),
+      this.readText(item, HANDOFF_FIELD.thread)].some(value => value?.toLocaleLowerCase().includes(query)));
     if (input.unclaimed) items = items.filter(item => !this.readText(item, FIELD.claimedSession));
 
     const visible = items.length;

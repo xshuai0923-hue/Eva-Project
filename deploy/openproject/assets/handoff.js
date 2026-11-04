@@ -1,3 +1,5 @@
+import { showCreateForm } from './create-form.js?v=50f83a502d';
+import { copyButton, recordUrl, pressed } from './ui-controls.js?v=a9c7e129c8';
 // Handoff module, running inside OpenProject's own page.
 //
 // The top bar, project menu and theme belong to OpenProject; this file renders only the
@@ -19,11 +21,11 @@ let csrfToken = '';
 // prose.js is imported, not linked from the layout, so the ?v= on this file does not
 // reach it and a stale copy can survive a bump here. The version travels with the
 // specifier instead: raise it in BOTH importers whenever prose.js changes.
-import { inlineNodes, proseNodes } from './prose.js?v=2f4b0da858';
+import { localTime, inlineNodes, proseNodes } from './prose.js?v=2f4b0da858';
 import {
   createSheetHistory, createShell, el, isCompact, loadingNode, rememberedProject, rememberProject, sheetBar,
   startingProject
-} from './shell.js?v=4a5e3f829e';
+} from './shell.js?v=ed60c0da2c';
 
 // The pipeline is shared with the requirement pool page; see shell.js for why it waited
 // for a second consumer before being pulled out. Its request takes the fetch options
@@ -42,7 +44,7 @@ const sheet = createSheetHistory({
 
 // --- adapter ------------------------------------------------------------------
 
-let state = { filter: '待接手', project: '', projects: [], items: [], selected: null, detail: null, editing: null };
+let state = { filter: '待接手', project: '', projects: [], items: [], selected: null, detail: null, editing: null, user: null };
 const STATES = ['草稿', '待接手', '已接手', '已归档', '已作废'];
 
 let listNode;
@@ -57,8 +59,20 @@ function progressBar(done, total) {
 }
 
 function renderList() {
+  const create = root.querySelector('[data-create-handoff]');
+  if (create) {
+    create.disabled = Boolean(state.loading) || !state.project || state.permissions?.create === false;
+    create.title = state.permissions?.create === false ? '当前账号没有创建交接的权限' : '';
+  }
   listNode.replaceChildren();
+  listNode.append(el('p', 'mp-hint', state.loading ? '正在加载交接…' : `已显示 ${state.items.length} / ${state.total ?? 0} 条`));
   if (!state.items.length) {
+    if (state.loading) return;
+    if (state.listError) {
+      const retry = el('button', 'mp-action', '重试加载交接'); retry.type = 'button';
+      retry.onclick = () => void guarded(loadList, () => {}); listNode.append(retry);
+      return;
+    }
     listNode.append(el('p', 'mp-empty', '没有符合条件的交接。'));
     return;
   }
@@ -66,16 +80,24 @@ function renderList() {
     const key = item.id || String(item.workPackageId);
     const card = el('button', 'mp-card' + (state.selected === key ? ' mp-is-active' : ''));
     card.type = 'button';
-    card.append(el('div', 'mp-card-thread', item.thread || '未命名线程'));
+    const thread = el('div', 'mp-card-thread', item.thread ? `工作线：${item.thread}` : '未命名工作线');
+    thread.title = '同一项工作历次交接组成的连续记录';
+    card.append(thread);
     card.append(el('div', 'mp-card-title', item.title));
     const meta = el('div', 'mp-card-meta');
     meta.append(el('span', 'mp-badge mp-badge-' + (item.handoffState || ''), item.handoffState || '未知'));
     meta.append(progressBar(item.todoDone || 0, item.todoTotal || 0));
     meta.append(el('span', '', (item.todoDone || 0) + '/' + (item.todoTotal || 0)));
-    if (item.claimedSession) meta.append(el('span', '', '· ' + (item.claimedAgent || '已领取')));
+    if (item.claimedSession) meta.append(el('span', '', '· ' + (item.claimLabel || item.claimedAgent || '已领取')));
     card.append(meta);
     card.onclick = () => selectHandoff(key);
     listNode.append(card);
+  }
+  if (state.nextCursor) {
+    const more = el('button', 'mp-action', '加载更多交接');
+    more.type = 'button'; more.disabled = Boolean(state.loading);
+    more.onclick = () => void guarded(() => loadList({ append: true }), () => {});
+    listNode.append(more);
   }
 }
 
@@ -103,6 +125,7 @@ function todoRow(todo) {
   const box = el('input');
   box.type = 'checkbox';
   box.checked = todo.done;
+  box.disabled = state.detail?.permissions?.update === false;
   box.setAttribute('aria-label', todo.text);
   box.onchange = () => toggleTodo(todo.id, box.checked, box);
   row.append(box);
@@ -143,6 +166,7 @@ function sectionBlock(name, content) {
   head.append(el('h3', '', name));
   const edit = el('button', 'mp-action', state.editing === name ? '取消' : '编辑');
   edit.type = 'button';
+  edit.disabled = state.detail?.permissions?.update === false;
   edit.onclick = () => { state.editing = state.editing === name ? null : name; renderDetail(); };
   head.append(edit);
   block.append(head);
@@ -172,6 +196,7 @@ function todosSection(detail) {
   head.append(el('h3', '', '待办'));
   const edit = el('button', 'mp-action', state.editing === '待办' ? '取消' : '编辑清单');
   edit.type = 'button';
+  edit.disabled = state.detail?.permissions?.update === false;
   edit.onclick = () => { state.editing = state.editing === '待办' ? null : '待办'; renderDetail(); };
   head.append(edit);
   block.append(head);
@@ -216,6 +241,7 @@ function renderDetail() {
   const handoff = detail.handoff;
 
   detailNode.append(el('h2', '', handoff.title));
+  detailNode.append(copyButton(() => recordUrl('handoff', state.project, handoff.id || handoff.workPackageId).href));
   detailNode.append(el('div', 'mp-detail-id', (handoff.id || '#' + handoff.workPackageId) + ' · ' + (handoff.thread || '')));
 
   const controls = el('div', 'mp-controls');
@@ -226,10 +252,22 @@ function renderDetail() {
     if (value === handoff.handoffState) option.selected = true;
     stateSelect.append(option);
   }
-  stateSelect.onchange = () => changeState(stateSelect.value, stateSelect);
+  stateSelect.setAttribute('aria-label', '交接状态');
+  stateSelect.onchange = () => {
+    if (stateSelect.value === '已接手' && !handoff.claimedSession) return claimHandoff(stateSelect);
+    if (stateSelect.value === '待接手' && handoff.claimedSession) return releaseClaim(stateSelect);
+    return changeState(stateSelect.value, stateSelect);
+  };
   controls.append(stateSelect);
-  if (handoff.claimedSession) {
-    const release = el('button', 'mp-action', '接管释放认领');
+  if (!handoff.claimedSession && !['已归档', '已作废'].includes(handoff.handoffState)) {
+    const claim = el('button', 'mp-action mp-is-primary', '接手交接');
+    claim.type = 'button';
+    claim.onclick = () => claimHandoff(claim);
+    controls.append(claim);
+  }
+  if (handoff.claimedSession && !['已归档', '已作废'].includes(handoff.handoffState)) {
+    const own = handoff.claimedSession === `web:${state.user?.userId}`;
+    const release = el('button', 'mp-action', own ? '释放接手' : '接管释放认领');
     release.type = 'button';
     release.onclick = () => releaseClaim(release);
     controls.append(release);
@@ -237,14 +275,25 @@ function renderDetail() {
   const open = el('a', 'mp-action', '打开工作包');
   open.href = '/work_packages/' + handoff.workPackageId;
   controls.append(open);
+  const permissions = detail.permissions;
+  if (permissions) {
+    stateSelect.disabled = !permissions.update;
+    for (const button of controls.querySelectorAll('button')) {
+      const permitted = button.textContent === '接手交接' ? permissions.claim : permissions.release;
+      button.disabled = !permitted;
+      if (!permitted) button.title = '当前账号或认领状态不允许此操作';
+    }
+  }
   detailNode.append(controls);
+  if (state.editing === '释放接手') detailNode.append(releaseForm(handoff));
 
   const facts = el('div', 'mp-facts');
   facts.append(fact('仓库', handoff.repository));
   facts.append(fact('分支', handoff.branch));
   facts.append(fact('基线提交', handoff.baseCommit ? handoff.baseCommit.slice(0, 12) : ''));
-  facts.append(fact('写出 Session', handoff.sourceSessionId));
-  facts.append(fact('接手', handoff.claimedSession ? (handoff.claimedAgent || '') + ' ' + handoff.claimedSession : '未领取'));
+  facts.append(fact('写出会话', handoff.sourceSessionId));
+  facts.append(fact('接手人', handoff.claimedSession ? (handoff.claimLabel || handoff.claimedAgent || handoff.claimedSession) : '未领取'));
+  if (handoff.claimedAt) facts.append(fact('接手时间', localTime(handoff.claimedAt)));
   facts.append(fact('上一任交接', handoff.previous));
   facts.append(fact('期望接手 Agent', handoff.expectedAgent));
   facts.append(fact('待办', (handoff.todoDone || 0) + ' / ' + (handoff.todoTotal || 0)));
@@ -258,18 +307,50 @@ function renderDetail() {
 
 // --- actions ------------------------------------------------------------------
 
-async function loadList() {
-  const query = state.filter ? '?state=' + encodeURIComponent(state.filter) : '';
-  state.items = (await request('/handoffs' + query)).items;
+async function loadList({ append = false } = {}) {
+  const view = state;
+  const container = root;
+  const key = JSON.stringify([view.project, view.filter, view.query]);
+  const ticket = view.listTicket = (view.listTicket ?? 0) + 1;
+  const valid = () => root === container && container.isConnected && state === view &&
+    view.listTicket === ticket && key === JSON.stringify([state.project, state.filter, state.query]);
+  const params = new URLSearchParams({ project: view.project, page_size: '50' });
+  if (view.filter) params.set('state', view.filter);
+  if (view.query) params.set('q', view.query);
+  if (append && view.nextCursor) params.set('cursor', view.nextCursor);
+  view.loading = true;
+  view.listError = null;
+  if (!append) { view.items = []; view.total = 0; view.nextCursor = null; }
   renderList();
+  try {
+    const data = await request('/handoffs', { params: [...params] });
+    if (!valid()) return;
+    const items = append ? [...view.items, ...(data.items ?? [])] : data.items ?? [];
+    view.items = [...new Map(items.map(item => [item.workPackageId, item])).values()];
+    view.total = data.total ?? view.items.length;
+    view.nextCursor = data.nextCursor ?? null;
+    view.permissions = data.permissions ?? null;
+  } catch (error) {
+    if (!valid()) return;
+    view.listError = error.message;
+    throw error;
+  } finally {
+    if (valid()) { view.loading = false; renderList(); }
+  }
 }
 
 async function loadDetail() {
   if (!state.selected) return;
   const reference = state.selected;
-  const detail = await request('/handoffs/' + encodeURIComponent(reference));
+  const view = state, project = view.project, container = root;
+  const ticket = view.detailTicket = (view.detailTicket ?? 0) + 1;
+  const valid = () => state === view && root === container && container.isConnected &&
+    view.detailTicket === ticket && state.project === project && state.selected === reference;
+  let detail;
+  try { detail = await request('/handoffs/' + encodeURIComponent(reference), { params: [['project', project]] }); }
+  catch (error) { if (valid()) throw error; return; }
   // Closed, or another one chosen, while this was on its way.
-  if (state.selected !== reference) return;
+  if (!valid()) return;
   state.detail = detail;
   renderDetail();
 }
@@ -278,14 +359,13 @@ async function selectHandoff(reference) {
   sheet.opened();
   state.selected = reference;
   state.editing = null;
+  state.detail = null;
+  syncUrl();
   renderList();
   // A sheet opens at once, at its top, and fills in when the handoff arrives. A wide
   // screen keeps showing the last one meanwhile, as it always has.
-  if (isCompact()) {
-    state.detail = null;
-    renderDetail();
-    detailNode.scrollTop = 0;
-  }
+  renderDetail();
+  if (isCompact()) detailNode.scrollTop = 0;
   await guarded(loadDetail, () => {});
 }
 
@@ -295,6 +375,7 @@ function closeHandoff() {
   state.selected = null;
   state.detail = null;
   state.editing = null;
+  syncUrl();
   renderList();
   renderDetail();
 }
@@ -304,62 +385,153 @@ async function refreshBoth() {
   await loadList();
 }
 
-const post = (suffix, body) =>
-  request('/handoffs/' + encodeURIComponent(state.selected) + '/' + suffix,
+const post = (suffix, body, reference = state.selected) =>
+  request('/handoffs/' + encodeURIComponent(reference) + '/' + suffix,
     { method: 'POST', body: JSON.stringify(body) });
 
+function currentRecord() {
+  const view = state, project = state.project, reference = state.selected, container = root;
+  return () => state === view && state.project === project && state.selected === reference && root === container && container.isConnected;
+}
+
 async function toggleTodo(id, done, box) {
+  const current = currentRecord();
   box.disabled = true;
   const todos = state.detail.todos.map(todo => serializeTodo(todo.id === id ? { ...todo, done } : todo)).join('\n');
   await guarded(async () => {
     await post('todos', { todos, lockVersion: state.detail.handoff.lockVersion, note: (done ? '勾选' : '取消勾选') + ' ' + id });
+    if (!current()) return;
     await refreshBoth();
-  }, refreshBoth);
+  }, () => current() ? refreshBoth() : undefined);
   box.disabled = false;
 }
 
 async function saveTodos(todos, button) {
+  const current = currentRecord();
   button.disabled = true;
   await guarded(async () => {
     await post('todos', { todos, lockVersion: state.detail.handoff.lockVersion, note: '在网页上编辑待办清单' });
+    if (!current()) return;
     state.editing = null;
     await refreshBoth();
     notify('待办已保存');
-  }, refreshBoth);
+  }, () => current() ? refreshBoth() : undefined);
   button.disabled = false;
 }
 
 async function saveSection(name, content, button) {
+  const current = currentRecord();
   button.disabled = true;
   await guarded(async () => {
     await post('sections', { section: name, content, lockVersion: state.detail.handoff.lockVersion });
+    if (!current()) return;
     state.editing = null;
     await loadDetail();
     notify(name + ' 已保存');
-  }, loadDetail);
+  }, () => current() ? loadDetail() : undefined);
   button.disabled = false;
+}
+
+function setHandoffFilter(value) {
+  state.filter = value;
+  for (const button of root.querySelectorAll('.mp-filter')) {
+    pressed(button, button.textContent === (value || '全部'));
+  }
+}
+
+async function claimHandoff(button) {
+  const reference = state.selected;
+  const project = state.project;
+  const item = state.detail.handoff;
+  const expected = item.expectedAgent;
+  const override = Boolean(expected && expected !== '不限');
+  if (override && !confirm(`这份交接期望由 ${expected} 接手，确认改由你本人接手？`)) {
+    renderDetail();
+    return;
+  }
+  button.disabled = true;
+  await guarded(async () => {
+    await post('claim', { lockVersion: item.lockVersion, override }, reference);
+    if (state.selected !== reference || state.project !== project) return;
+    setHandoffFilter('已接手');
+    await refreshBoth();
+    notify('已由你接手，接手账号和时间已记录');
+  }, refreshBoth);
+  button.disabled = false;
+  renderDetail();
 }
 
 async function changeState(value, select) {
+  const current = currentRecord();
   select.disabled = true;
   await guarded(async () => {
     await post('state', { state: value, lockVersion: state.detail.handoff.lockVersion });
+    if (!current()) return;
     await refreshBoth();
     notify('状态已更新为 ' + value);
-  }, refreshBoth);
+  }, () => current() ? refreshBoth() : undefined);
   select.disabled = false;
+  if (current()) renderDetail();
 }
 
-async function releaseClaim(button) {
-  const reason = prompt('接管释放的原因（会记入变更记录）：', '原认领 Session 已失联');
-  if (reason === null) return;
-  button.disabled = true;
-  await guarded(async () => {
-    await post('release', { reason, lockVersion: state.detail.handoff.lockVersion });
-    await refreshBoth();
-    notify('认领已释放，交接回到待接手');
-  }, refreshBoth);
-  button.disabled = false;
+function releaseClaim() {
+  state.editing = '释放接手';
+  renderDetail();
+  detailNode.querySelector('[name="releaseReason"]')?.focus();
+}
+
+function releaseForm(item) {
+  const reference = state.selected;
+  const project = state.project;
+  const own = item.claimedSession === `web:${state.user?.userId}`;
+  const form = el('form', 'mp-section');
+  form.setAttribute('aria-label', '释放接手');
+  form.append(el('h3', '', own ? '释放接手' : '接管释放认领'));
+  form.append(el('p', 'mp-hint', own
+    ? '填写原因并确认后，交接回到待接手，供其他人继续处理。'
+    : '接管他人的接手需要所属用户或管理员权限，操作和原因会记录到历史。'));
+  const label = el('label');
+  label.append(el('span', 'mp-fact-label', '释放原因'));
+  const reason = el('textarea', 'mp-editor');
+  reason.name = 'releaseReason';
+  reason.rows = 3;
+  reason.maxLength = 2000;
+  reason.required = true;
+  label.append(reason);
+  const error = el('p', 'mp-hint');
+  error.setAttribute('role', 'alert');
+  const actions = el('div', 'mp-editor-actions');
+  const cancel = el('button', 'mp-action', '取消');
+  cancel.type = 'button';
+  cancel.onclick = () => { state.editing = null; renderDetail(); };
+  const save = el('button', 'mp-action mp-is-primary', '确认释放');
+  save.type = 'submit';
+  actions.append(cancel, save);
+  form.append(label, error, actions);
+  let busy = false;
+  form.onsubmit = async event => {
+    event.preventDefault();
+    if (busy) return;
+    const text = reason.value.trim();
+    if (!text) { error.textContent = '请填写释放原因'; reason.focus(); return; }
+    busy = true;
+    save.disabled = cancel.disabled = true;
+    error.textContent = '';
+    try {
+      await post('release', { reason: text, lockVersion: item.lockVersion }, reference);
+    } catch (failure) {
+      error.textContent = failure.message;
+      busy = false;
+      save.disabled = cancel.disabled = false;
+      return;
+    }
+    if (state.selected !== reference || state.project !== project) return;
+    state.editing = null;
+    setHandoffFilter('待接手');
+    await guarded(refreshBoth, refreshBoth);
+    notify('接手已释放，交接回到待接手');
+  };
+  return form;
 }
 
 // --- boot ---------------------------------------------------------------------
@@ -381,6 +553,8 @@ function projectPicker() {
     syncUrl();
     state.selected = null;
     state.detail = null;
+    state.editing = null;
+    syncUrl();
     renderDetail();
     void guarded(loadList, () => {});
   };
@@ -392,34 +566,33 @@ function projectPicker() {
  *  reload shows the list rather than reopening the same one every time. */
 function takeOpen() {
   const url = new URL(location.href);
-  const open = url.searchParams.get('open');
-  if (!open) return '';
-  url.searchParams.delete('open');
-  history.replaceState(null, '', url);
-  return open;
+  return url.searchParams.get('open') || '';
 }
 
 /** The address says which project is shown, so it can be linked to and reloaded. */
 function syncUrl() {
-  if (fixedProject) return;
   const url = new URL(location.href);
-  if (state.project) url.searchParams.set('project', state.project);
-  else url.searchParams.delete('project');
-  history.replaceState(null, '', url);
+  if (!fixedProject) {
+    if (state.project) url.searchParams.set('project', state.project);
+    else url.searchParams.delete('project');
+  }
+  if (state.selected) url.searchParams.set('open', state.selected);
+  else url.searchParams.delete('open');
+  history.replaceState(history.state, '', url);
 }
 
 function build() {
   const aside = el('aside');
   if (!fixedProject) aside.append(projectPicker());
   const filters = el('div', 'mp-filters');
-  filters.setAttribute('role', 'tablist');
+  filters.setAttribute('role', 'group');
+  filters.setAttribute('aria-label', '交接状态筛选');
   for (const [label, value] of [['待接手', '待接手'], ['已接手', '已接手'], ['全部', '']]) {
     const button = el('button', 'mp-filter' + (value === state.filter ? ' mp-is-active' : ''), label);
     button.type = 'button';
-    button.setAttribute('role', 'tab');
+    pressed(button, value === state.filter);
     button.onclick = () => {
-      for (const other of filters.children) other.classList.remove('mp-is-active');
-      button.classList.add('mp-is-active');
+      for (const other of filters.children) pressed(other, other === button);
       state.filter = value;
       void guarded(loadList, () => {});
     };
@@ -427,7 +600,35 @@ function build() {
   }
   listNode = el('div', 'mp-list');
   listNode.setAttribute('aria-live', 'polite');
-  aside.append(filters, listNode);
+  const create = el('button', 'mp-action mp-is-primary', '＋ 新建交接');
+  create.type = 'button';
+  create.dataset.createHandoff = '1';
+  create.onclick = () => {
+    const project = state.project;
+    showCreateForm({ kind: 'handoff', project: state.projects.find(item => item.identifier === project) || { identifier: project }, userId: state.user?.userId,
+      submit: body => request('/handoffs', { method: 'POST', body: JSON.stringify(body), params: [['project', project]] }),
+      created: async item => {
+        if (!root?.isConnected || state.project !== project) return;
+        state.filter = '待接手';
+        for (const button of filters.children) pressed(button, button.textContent === '待接手');
+        await loadList();
+        await selectHandoff(item.id || String(item.workPackageId));
+        notify('交接已创建');
+      }
+    });
+  };
+  const searchLabel = el('label', 'mp-hint');
+  searchLabel.append(el('span', '', '查找交接：标题、编号或工作线'));
+  const search = el('input', 'mp-handoff-search'); search.type = 'search';
+  search.placeholder = '输入关键词';
+  let searchTimer;
+  search.oninput = () => {
+    state.query = search.value.trim();
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { if (search.isConnected) void guarded(loadList, () => {}); }, 250);
+  };
+  searchLabel.append(search);
+  aside.append(create, searchLabel, filters, listNode);
 
   detailNode = el('section', 'mp-detail');
   detailNode.setAttribute('aria-live', 'polite');
@@ -446,20 +647,29 @@ async function mount() {
   apiBase = container.dataset.api ?? '';
   fixedProject = container.dataset.project || '';
   csrfToken = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
-  state = { filter: '待接手', project: fixedProject, projects: [], items: [], selected: null, detail: null, editing: null };
+  state = { filter: '待接手', project: fixedProject, projects: [], items: [], total: 0, nextCursor: null, query: '', selected: null, detail: null, editing: null, user: null };
+  const view = state;
+  const current = () => state === view && root === container && container.isConnected;
 
   try {
     const open = takeOpen();
+    const session = await request('/session');
+    if (!current()) return;
+    state.user = session.user;
+    state.projects = session.projects || [];
+    if (!state.projects.length) {
+      root.append(el('p', 'mp-empty', '没有你可以访问的项目，请联系项目管理员确认权限。'));
+      return;
+    }
     if (!fixedProject) {
-      const session = await request('/session');
-      state.projects = session.projects || [];
       // A link naming a project wins, then the project last chosen on either page; the
       // server's default only when nothing was ever chosen — and that default is not
       // remembered, so the pool still opens on its project list for someone who never
       // picked one.
       const fromAddress = new URL(location.href).searchParams.get('project') || '';
       state.project = startingProject({
-        fromAddress, remembered: rememberedProject(), visible: state.projects, fallback: session.project
+        fromAddress, remembered: rememberedProject(), visible: state.projects,
+        fallback: state.projects.some(project => project.identifier === session.project) ? session.project : state.projects[0]?.identifier || ''
       });
       if (state.project !== session.project || fromAddress) rememberProject(state.project);
       syncUrl();
@@ -471,23 +681,29 @@ async function mount() {
     let unopened = null;
     if (open) {
       try {
-        state.detail = await request('/handoffs/' + encodeURIComponent(open));
+        const detail = await request('/handoffs/' + encodeURIComponent(open));
+        if (!current()) return;
+        state.detail = detail;
         state.selected = open;
+        syncUrl();
         const handoffState = state.detail.handoff.handoffState;
         state.filter = handoffState === '待接手' || handoffState === '已接手' ? handoffState : '';
       } catch (error) {
+        if (!current()) return;
         unopened = error;
       }
     }
     build();
     await loadList();
+    if (!current()) return;
     if (state.detail) {
       sheet.opened();
       renderDetail();
     }
     if (unopened) notify(unopened.message, 'error');
   } catch (error) {
-    build();
+    if (!current()) return;
+    if (!root.querySelector('aside')) build();
     notify(error.message, 'error');
   }
 }

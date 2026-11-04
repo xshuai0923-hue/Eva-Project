@@ -189,6 +189,8 @@ function collection<T>(elements: T[]): HalCollection<T> {
 }
 
 class FakeOpenProject implements OpenProjectApi {
+  async canCreateWorkPackages(): Promise<boolean> { return true; }
+  async canEditWorkPackages(): Promise<boolean> { return true; }
   workPackages = new Map<number, WorkPackage>();
   children: WorkPackage[] = [];
   updateCalls: Array<{ id: number; payload: Record<string, unknown> }> = [];
@@ -403,6 +405,11 @@ class FakeOpenProject implements OpenProjectApi {
     }
     const updated = { ...current, ...payload, _links: links, lockVersion: current.lockVersion + 1 } as WorkPackage;
     this.workPackages.set(id, updated);
+    const note = payload.journalNotes as { raw?: string } | undefined;
+    if (note?.raw) {
+      this.comments.push({ workPackageId: id, text: note.raw });
+      this.activities.push({ id: 1000 + this.comments.length, comment: { raw: note.raw } });
+    }
     return updated;
   }
 
@@ -479,6 +486,42 @@ function requirementInput(overrides: Partial<CreateRequirementInput> = {}): Crea
     ...overrides
   };
 }
+
+describe("web project discovery and action capabilities", () => {
+  it("reads every visible project past the first 100", async () => {
+    const client = new FakeOpenProject([]);
+    const pages: number[] = [];
+    const all = Array.from({ length: 101 }, (_, index) => ({ id: index + 1, identifier: `project-${index}`, name: `Project ${index}` }));
+    client.listProjects = async parameters => {
+      const size = Number(parameters?.pageSize ?? 100), page = Number(parameters?.offset ?? 1);
+      pages.push(page);
+      return { ...collection(all.slice((page - 1) * size, page * size)), total: all.length, pageSize: size, offset: page };
+    };
+    const values = await new RequirementService(client, fieldMap).everyVisibleProject(admin);
+    expect(values).toHaveLength(101);
+    expect(values.at(-1)?.identifier).toBe("project-100");
+    expect(pages).toEqual([1, 2]);
+    expect(client.createProjectCalls).toHaveLength(0);
+  });
+  it("offers only actions consistent with project permissions and record ownership", async () => {
+    const client = new FakeOpenProject([wp()]);
+    const service = new RequirementService(client, fieldMap);
+    expect(await service.recordAccess(1, "eva-project", alice, "web:alice")).toMatchObject({ update: true, manage: true, claim: true });
+    await expect(service.recordAccess(1, "eva-project", bob, "web:bob")).rejects.toThrow();
+    client.canEditWorkPackages = async () => false;
+    expect(await service.recordAccess(1, "eva-project", alice, "web:alice")).toMatchObject({ update: false, manage: false, claim: false });
+  });
+  it("does not advertise another user's claim rights for a copied session id", async () => {
+    const item = wp();
+    item._links.cfVisibility = { href: option("visibility", "public"), title: "公开" };
+    const service = new RequirementService(new FakeOpenProject([item]), fieldMap);
+    await service.claim({ project: "eva-project", reference: 1, agent: "Codex", sessionId: "claimed-by-bob",
+      label: "Bob", scope: "work", claimedAt: "2026-11-04T10:00:00Z", expectedLockVersion: 3 }, bob);
+    expect(await service.recordAccess(1, "eva-project", bob, "claimed-by-bob")).toMatchObject({ update: true, release: true, manage: false });
+    expect(await service.recordAccess(1, "eva-project", bob, "other-session")).toMatchObject({ update: false, release: false });
+    expect(await service.recordAccess(1, "eva-project", alice, "claimed-by-bob")).toMatchObject({ update: true, manage: true, claim: false });
+  });
+});
 
 describe("project binding", () => {
   it("returns an existing caller-supplied project without creating another", async () => {
@@ -616,7 +659,7 @@ describe("claiming", () => {
     const client = new FakeOpenProject([wp({ cfClaimedSession: "session-a" })]);
     const service = new RequirementService(client, fieldMap);
 
-    const result = await service.claim({
+    const result = await service.claim({ expectedLockVersion: 3,
       reference: 1,
       agent: "Codex",
       sessionId: "session-a",
@@ -633,7 +676,7 @@ describe("claiming", () => {
     const client = new FakeOpenProject([wp({ cfClaimedSession: "session-b" })]);
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.claim({
+    await expect(service.claim({ expectedLockVersion: 3,
       reference: 1,
       agent: "Codex",
       sessionId: "session-a",
@@ -649,7 +692,7 @@ describe("claiming", () => {
     client.updateError = new OpenProjectHttpError(409, "conflict", {});
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.claim({
+    await expect(service.claim({ expectedLockVersion: 3,
       reference: 1,
       agent: "Codex",
       sessionId: "session-a",
@@ -926,7 +969,7 @@ describe("parent hierarchy", () => {
     const client = new FakeOpenProject([parent, child]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.setParent({
+    await service.setParent({ expectedLockVersion: 3,
       project: "eva-project",
       child: 2,
       parent: 1,
@@ -952,7 +995,7 @@ describe("parent hierarchy", () => {
     const client = new FakeOpenProject([child]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.setParent({
+    await service.setParent({ expectedLockVersion: 3,
       project: "eva-project",
       child: 2,
       parent: null,
@@ -971,7 +1014,7 @@ describe("parent hierarchy", () => {
     const client = new FakeOpenProject([child, parent]);
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.setParent({
+    await expect(service.setParent({ expectedLockVersion: 3,
       project: "eva-project",
       child: 1,
       parent: 2,
@@ -993,7 +1036,7 @@ describe("parent hierarchy", () => {
     const client = new FakeOpenProject([child, otherProjectParent]);
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.setParent({
+    await expect(service.setParent({ expectedLockVersion: 3,
       project: "eva-project",
       child: 1,
       parent: 2,
@@ -1015,7 +1058,7 @@ describe("parent hierarchy", () => {
     const client = new FakeOpenProject([child, parent]);
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.setParent({
+    await expect(service.setParent({ expectedLockVersion: 3,
       project: "eva-project",
       child: 1,
       parent: 2,
@@ -1078,7 +1121,7 @@ describe("requirement content and tree", () => {
     const client = new FakeOpenProject([original]);
     const service = new RequirementService(client, fieldMap);
 
-    const result = await service.updateContent({
+    const result = await service.updateContent({ expectedLockVersion: 3,
       project: "eva-project",
       reference: 1,
       title: "Updated title",
@@ -1157,11 +1200,11 @@ describe("requirement content and tree", () => {
       expect.objectContaining({ id: "MPR-REQ-CHILD-1", ok: true, created: true }),
       expect.objectContaining({ id: "MPR-REQ-CHILD-2", ok: true, created: true })
     ]);
-    expect(client.updateCalls).toHaveLength(2);
-    expect(client.updateCalls.map(call => call.payload._links)).toEqual([
-      { parent: { href: "/api/v3/work_packages/1" } },
-      { parent: { href: "/api/v3/work_packages/1" } }
-    ]);
+    expect(client.updateCalls).toHaveLength(0);
+    expect(client.createCalls).toHaveLength(2);
+    for (const call of client.createCalls) {
+      expect(call.payload._links).toMatchObject({ parent: { href: "/api/v3/work_packages/1" } });
+    }
   });
 
   it("returns compact dependencies and completion blockers in detail", async () => {
@@ -1216,7 +1259,7 @@ describe("cross-session updates", () => {
     item._links.cfVisibility = { href: option("visibility", "public"), title: "公开" };
     const client = new FakeOpenProject([item]);
     const service = new RequirementService(client, fieldMap);
-    await expect(service.updateState({ project: "eva-project", reference: 1, sessionId: "session-b", state: "进行中", note: "update", changedAt: "2026-09-20T10:00:00+08:00" }, bob)).rejects.toThrow(RequirementValidationError);
+    await expect(service.updateState({ expectedLockVersion: 3, project: "eva-project", reference: 1, sessionId: "session-b", state: "进行中", note: "update", changedAt: "2026-09-20T10:00:00+08:00" }, bob)).rejects.toThrow(RequirementValidationError);
     expect(client.updateCalls).toHaveLength(0);
   });
 });
@@ -1256,7 +1299,7 @@ describe("finishing a requirement by hand", () => {
 describe("an agent claims a requirement before working on it", () => {
   const viaCodex: Principal = { ...alice, via: "Codex" };
   const move = (service: RequirementService, state: string, principal: Principal, options?: { byHand?: boolean }) =>
-    service.updateState({
+    service.updateState({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, state, note: "开工", changedAt: "2026-09-23T14:00:00Z"
     }, principal, options);
 
@@ -1280,7 +1323,7 @@ describe("an agent claims a requirement before working on it", () => {
   it("refuses an agent completing an unclaimed requirement, and lets the page complete it", async () => {
     const client = new FakeOpenProject([wp()]);
     const service = new RequirementService(client, fieldMap);
-    const complete = (principal: Principal, options?: { byHand?: boolean }) => service.complete({
+    const complete = (principal: Principal, options?: { byHand?: boolean }) => service.complete({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, sessionId: "session-b", completedAt: "2026-09-23T14:00:00Z",
       evidence: [{
         repository: "Eva-Project", sha: "a".repeat(40), paths: ["services/mcp/src/service.ts"],
@@ -1338,7 +1381,7 @@ describe("completion", () => {
     const client = new FakeOpenProject([wp({ cfClaimedSession: "session-a" })]);
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.complete({
+    await expect(service.complete({ expectedLockVersion: 3,
       reference: 1,
       sessionId: "session-a",
       completedAt: "2026-09-19T19:00:00+08:00",
@@ -1360,7 +1403,7 @@ describe("completion", () => {
     })];
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.complete({
+    await expect(service.complete({ expectedLockVersion: 3,
       reference: 1,
       sessionId: "session-a",
       completedAt: "2026-09-19T19:00:00+08:00",
@@ -1385,7 +1428,7 @@ describe("completion", () => {
     }));
     const service = new RequirementService(client, fieldMap);
 
-    await expect(service.complete({
+    await expect(service.complete({ expectedLockVersion: 3,
       reference: 1,
       sessionId: "session-a",
       completedAt: "2026-09-19T19:00:00+08:00",
@@ -1398,7 +1441,7 @@ describe("completion", () => {
     const client = new FakeOpenProject([wp({ cfClaimedSession: "session-a" })]);
     const service = new RequirementService(client, fieldMap);
 
-    const result = await service.complete({
+    const result = await service.complete({ expectedLockVersion: 3,
       reference: 1,
       sessionId: "session-b",
       completedAt: "2026-09-19T19:00:00+08:00",
@@ -1486,7 +1529,7 @@ describe("claim takeover", () => {
   it("still refuses a foreign release when takeover is not requested", async () => {
     const service = new RequirementService(new FakeOpenProject([claimed()]), fieldMap);
 
-    await expect(service.release({
+    await expect(service.release({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, sessionId: "new-session",
       reason: "上一任已失联", releasedAt: "2026-09-21T22:00:00+08:00"
     }, alice)).rejects.toThrow(/dead-session/);
@@ -1496,7 +1539,7 @@ describe("claim takeover", () => {
     const client = new FakeOpenProject([claimed()]);
     const service = new RequirementService(client, fieldMap);
 
-    const result = await service.release({
+    const result = await service.release({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, sessionId: "new-session",
       reason: "上一任已失联", releasedAt: "2026-09-21T22:00:00+08:00", takeover: true
     }, alice);
@@ -1512,7 +1555,7 @@ describe("claim takeover", () => {
     const client = new FakeOpenProject([claimed()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.release({
+    await service.release({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, sessionId: "new-session",
       reason: "上一任已失联", releasedAt: "2026-09-21T22:00:00+08:00", takeover: true
     }, alice);
@@ -1527,7 +1570,7 @@ describe("claim takeover", () => {
   it("refuses a takeover by someone who does not own the requirement", async () => {
     const service = new RequirementService(new FakeOpenProject([claimed()]), fieldMap);
 
-    await expect(service.release({
+    await expect(service.release({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, sessionId: "new-session",
       reason: "想接管", releasedAt: "2026-09-21T22:00:00+08:00", takeover: true
     }, bob)).rejects.toThrow(/not found/);
@@ -1537,7 +1580,7 @@ describe("claim takeover", () => {
     const client = new FakeOpenProject([claimed()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.release({
+    await service.release({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, sessionId: "dead-session",
       reason: "交还", releasedAt: "2026-09-21T22:00:00+08:00"
     }, alice);
@@ -1985,7 +2028,7 @@ describe("long text custom fields", () => {
     const client = new FakeOpenProject([wp({ cfClaimedSession: null })]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.claim({
+    await service.claim({ expectedLockVersion: 3,
       project: "eva-project",
       reference: "MPR-REQ-001",
       agent: "Codex",
@@ -2163,7 +2206,7 @@ describe("a requirement body is a record, not a development log", () => {
     const before = client.workPackages.get(1)!.description!.raw;
 
     for (let round = 0; round < 10; round += 1) {
-      await service.updateState({
+      await service.updateState({ expectedLockVersion: 3 + round,
         project: "eva-project",
         reference: 1,
         state: round % 2 === 0 ? "进行中" : "待认领",
@@ -2182,11 +2225,11 @@ describe("a requirement body is a record, not a development log", () => {
     expect(client.comments[9]!.text).toContain("第 10 轮");
   });
 
-  it("writes the note before the change, so the two land on one journal entry", async () => {
+  it("writes the note and change in one versioned request", async () => {
     const client = new FakeOpenProject([logged()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.updateState({
+    await service.updateState({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, state: "进行中",
       note: "开工", changedAt: "2026-09-22T20:00:00+08:00"
     }, alice);
@@ -2195,7 +2238,7 @@ describe("a requirement body is a record, not a development log", () => {
     // notes-free entry after it, never the reverse, so a note written second is paired
     // with the NEXT change — measured on 17.8.0 as a history captioned 「进行中」 beside
     // details saying 进行中 → 待认领. Reversing these two lines silently reintroduces it.
-    expect(client.calls).toEqual(["comment", "update"]);
+    expect(client.calls).toEqual(["update"]);
   });
 
   it("gives back every run of a heading that appears more than once", async () => {
@@ -2266,7 +2309,7 @@ describe("delivery evidence stays a section, and completing reaches the history"
     const client = new FakeOpenProject([templated()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.complete({
+    await service.complete({ expectedLockVersion: 3,
       reference: 1, sessionId: "session-a",
       completedAt: "2026-09-22T20:00:00+08:00", evidence: evidence("a".repeat(40))
     }, alice);
@@ -2282,11 +2325,11 @@ describe("delivery evidence stays a section, and completing reaches the history"
     const client = new FakeOpenProject([templated()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.complete({
+    await service.complete({ expectedLockVersion: 3,
       reference: 1, sessionId: "session-a",
       completedAt: "2026-09-22T20:00:00+08:00", evidence: evidence("a".repeat(40))
     }, alice);
-    await service.complete({
+    await service.complete({ expectedLockVersion: 4,
       reference: 1, sessionId: "session-a",
       completedAt: "2026-09-23T20:00:00+08:00", evidence: evidence("b".repeat(40))
     }, alice);
@@ -2310,7 +2353,7 @@ describe("delivery evidence stays a section, and completing reaches the history"
     })]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.complete({
+    await service.complete({ expectedLockVersion: 3,
       reference: 1, sessionId: "session-a",
       completedAt: "2026-09-22T20:00:00+08:00", evidence: evidence("c".repeat(40))
     }, alice);
@@ -2327,7 +2370,7 @@ describe("delivery evidence stays a section, and completing reaches the history"
     const client = new FakeOpenProject([templated()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.complete({
+    await service.complete({ expectedLockVersion: 3,
       reference: 1, sessionId: "session-a",
       completedAt: "2026-09-22T20:00:00+08:00", evidence: evidence("a".repeat(40))
     }, alice);
@@ -2337,7 +2380,7 @@ describe("delivery evidence stays a section, and completing reaches the history"
     expect(client.comments).toEqual([
       { workPackageId: 1, text: "- 2026-09-22T20:00:00+08:00：完成。交付证据 1 条，提交 aaaaaaaaaaaa" }
     ]);
-    expect(client.calls).toEqual(["comment", "update"]);
+    expect(client.calls).toEqual(["update"]);
   });
 });
 
@@ -2480,31 +2523,31 @@ describe("signing what the service writes", () => {
     expect(client.comments.map(comment => comment.text)).toEqual(["看过了\n\n— 署名：alice · Claude"]);
   });
 
-  it("signs the reason a state change carries, in the same note, before the change", async () => {
+  it("signs the reason in the atomic update", async () => {
     const client = new FakeOpenProject([wp({ cfClaimedSession: "session-a" })]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.updateState({
+    await service.updateState({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, state: "进行中", note: "开工", changedAt: "2026-09-23T10:00:00+08:00"
     }, viaClaude);
 
     expect(client.comments[0]!.text).toBe("- 2026-09-23T10:00:00+08:00：状态更新为「进行中」。开工\n\n— 署名：alice · Claude");
-    expect(client.calls).toEqual(["comment", "update"]);
+    expect(client.calls).toEqual(["update"]);
   });
 
   // A bare change left unsigned would be aggregated into whatever signed entry came
   // before it within five minutes, and read as that agent's work.
-  it("gives a change that carries no reason a note that is only the signature, posted first", async () => {
+  it("signs a successful claim in the atomic update", async () => {
     const client = new FakeOpenProject([wp()]);
     const service = new RequirementService(client, fieldMap);
 
-    await service.claim({
+    await service.claim({ expectedLockVersion: 3,
       project: "eva-project", reference: 1, agent: "Codex", sessionId: "session-a",
       label: "开工", scope: "全部", claimedAt: "2026-09-23T10:00:00+08:00"
     }, viaClaude);
 
-    expect(client.comments.map(comment => comment.text)).toEqual(["— 署名：alice · Claude"]);
-    expect(client.calls).toEqual(["comment", "update"]);
+    expect(client.comments.map(comment => comment.text)).toEqual(["认领需求\n\n— 署名：alice · Claude"]);
+    expect(client.calls).toEqual(["update"]);
   });
 
   it("signs a new requirement once, in the entry that creates it", async () => {
@@ -2638,7 +2681,7 @@ describe("completing a delivery that is files outside any repository", () => {
     acceptanceStatus: "不适用" as const,
     acceptanceSource: "基础设施改动，无产品验收"
   };
-  const complete = (service: RequirementService, evidence: unknown[]) => service.complete({
+  const complete = (service: RequirementService, evidence: unknown[]) => service.complete({ expectedLockVersion: 3,
     reference: 1, sessionId: "session-a", completedAt: "2026-09-23T14:00:00+08:00",
     evidence: evidence as never
   }, alice);
@@ -3092,5 +3135,231 @@ describe("the top bar's search (#218)", () => {
       handoffs: { total: 0, page: 1, pageSize: 20, items: [] }
     });
     expect(client.globalListParameters).toEqual([]);
+  });
+});
+
+
+describe("workflow repair regressions", () => {
+  it("does not create a misleading activity when a versioned claim fails", async () => {
+    const client = new FakeOpenProject([wp()]);
+    client.updateError = new OpenProjectHttpError(422, "workflow rejected", {});
+    const service = new RequirementService(client, fieldMap);
+    await expect(service.claim({ expectedLockVersion: 3, project: "eva-project", reference: 1, agent: "Codex",
+      sessionId: "test", label: "test", scope: "test", claimedAt: "2026-11-04T00:00:00Z"
+    }, { ...alice, via: "网页" })).rejects.toThrow("workflow rejected");
+    expect(client.comments).toEqual([]);
+    expect(client.workPackages.get(1)?.cfClaimedSession).toBeNull();
+  });
+  it("serializes concurrent retries of one creation", async () => {
+    const client = new FakeOpenProject([]);
+    const service = new RequirementService(client, fieldMap);
+    const results = await Promise.all([service.create(requirementInput(), alice), service.create(requirementInput(), alice)]);
+    expect(client.createCalls).toHaveLength(1);
+    expect(results[0]?.item.workPackageId).toBe(results[1]?.item.workPackageId);
+    expect(results[1]?.replayed).toBe(true);
+  });
+  it("refuses creation and claiming when native project permissions deny them", async () => {
+    const client = new FakeOpenProject([wp()]);
+    client.canCreateWorkPackages = async () => false;
+    client.canEditWorkPackages = async () => false;
+    const service = new RequirementService(client, fieldMap);
+    await expect(service.create(requirementInput(), alice)).rejects.toThrow("创建任务的权限");
+    await expect(service.claim({ expectedLockVersion: 3, project: "eva-project", reference: 1, agent: "Codex", sessionId: "test",
+      label: "test", scope: "test", claimedAt: "2026-11-04T00:00:00Z" }, alice)).rejects.toThrow("处理任务的权限");
+    expect(client.updateCalls).toHaveLength(0);
+  });
+  it("reopens with a reason, resetting current acceptance and preserving evidence", async () => {
+    const original = wp();
+    original._links.cfState = { href: option("state", "done"), title: "已完成" };
+    original.cfClaimedSession = "previous-session";
+    original.description = { raw: "## 交付证据\n\n完成时间：2026-11-03\n旧验收证据" };
+    const client = new FakeOpenProject([original]);
+    const service = new RequirementService(client, fieldMap);
+    await expect(service.reopen({ expectedLockVersion: 3, project: "eva-project", reference: 1, reason: " ", changedAt: "now" }, alice)).rejects.toThrow("原因");
+    await service.reopen({ project: "eva-project", reference: 1, reason: "发现新问题", changedAt: "now", expectedLockVersion: 3 }, alice);
+    const item = client.workPackages.get(1)!;
+    expect(item.description).toEqual(original.description);
+    expect(item.cfClaimedSession).toBeNull();
+    expect(item._links.cfAcceptance).toEqual({ href: option("acceptance", "pending") });
+    expect(item._links.cfVerification).toEqual({ href: option("verification", "unverified") });
+    expect(client.comments[0]?.text).toContain("发现新问题");
+  });
+});
+
+
+it("allows explicit human acceptance without fabricated delivery artifacts", async () => {
+  const client = new FakeOpenProject([wp()]);
+  const service = new RequirementService(client, fieldMap);
+  await service.complete({ expectedLockVersion: 3,project:"eva-project",reference:1,sessionId:"web:alice",completedAt:"2026-11-04T00:00:00Z",evidence:[]},alice,{byHand:true});
+  expect(client.workPackages.get(1)?.description?.raw).toContain("alice 在网页上人工验收完成");
+  expect(client.workPackages.get(1)?._links.cfAcceptance).toEqual({href:option("acceptance","accepted")});
+});
+
+
+describe("write permission and concurrency safeguards", () => {
+  const parent = () => wp({ id: 2, cfId: "PARENT" });
+  const completedParent = () => {
+    const item = parent();
+    item._links.cfState = { href: option("state", "done"), title: "已完成" };
+    return item;
+  };
+  it("blocks hierarchy, dependency and batch writes after project edit permission is revoked", async () => {
+    const client = new FakeOpenProject([wp(), parent()]);
+    client.canEditWorkPackages = async () => false;
+    const service = new RequirementService(client, fieldMap);
+    await expect(service.setParent({ project: "eva-project", child: 1, parent: 2,
+      requiredForParent: true, expectedLockVersion: 3 }, alice)).rejects.toThrow("处理任务的权限");
+    await expect(service.addDependency({ project: "eva-project", prerequisite: 1, dependent: 2 }, alice))
+      .rejects.toThrow("处理任务的权限");
+    await expect(service.createChildren({ project: "eva-project", parent: 2,
+      children: [{ ...requirementInput(), requiredForParent: true }] }, alice)).rejects.toThrow("处理任务的权限");
+    expect(client.updateCalls).toEqual([]);
+    expect(client.createCalls).toEqual([]);
+    expect(client.relations).toEqual([]);
+    expect(client.comments).toEqual([]);
+  });
+  it("rejects every child attachment path while the parent is complete, before creating anything", async () => {
+    const client = new FakeOpenProject([wp(), completedParent()]);
+    const service = new RequirementService(client, fieldMap);
+    await expect(service.create({ ...requirementInput(), parent: 2 }, alice)).rejects.toThrow("重新打开主需求");
+    await expect(service.createChildren({ project: "eva-project", parent: 2,
+      children: [{ ...requirementInput(), requiredForParent: true }] }, alice)).rejects.toThrow("重新打开主需求");
+    await expect(service.setParent({ project: "eva-project", child: 1, parent: 2,
+      requiredForParent: true, expectedLockVersion: 3 }, alice)).rejects.toThrow("重新打开主需求");
+    expect(client.createCalls).toEqual([]);
+    expect(client.updateCalls).toEqual([]);
+    expect(client.comments).toEqual([]);
+  });
+  it("creates bound children after reopening and replays the same batch without rewriting", async () => {
+    const client = new FakeOpenProject([completedParent()]);
+    const service = new RequirementService(client, fieldMap);
+    await service.reopen({ project: "eva-project", reference: 2, expectedLockVersion: 3,
+      reason: "继续分工", changedAt: "now" }, alice);
+    const input = { project: "eva-project", parent: 2,
+      children: [{ ...requirementInput(), requiredForParent: true }] };
+    expect((await service.createChildren(input, alice)).results[0]).toMatchObject({ ok: true, created: true });
+    expect((await service.createChildren(input, alice)).results[0]).toMatchObject({ ok: true, created: false });
+    expect(client.createCalls).toHaveLength(1);
+    expect(client.createCalls[0]?.payload._links).toMatchObject({ parent: { href: "/api/v3/work_packages/2" } });
+    expect(client.updateCalls).toHaveLength(1); // Only the reopen, never a second bind.
+    const changed = { ...input, children: [{ ...requirementInput(), requiredForParent: false }] };
+    expect((await service.createChildren(changed, alice)).results[0]).toMatchObject({ ok: false });
+    expect(client.updateCalls).toHaveLength(1);
+  });
+  it("rejects missing client versions for all versioned requirement actions without side effects", async () => {
+    const client = new FakeOpenProject([wp(), parent()]);
+    const service = new RequirementService(client, fieldMap);
+    const common = { project: "eva-project", reference: 1 };
+    const writes = [
+      () => service.claim({ ...common, agent: "Codex", sessionId: "test", label: "test", scope: "test", claimedAt: "now" }, alice),
+      () => service.release({ ...common, sessionId: "test", reason: "test", releasedAt: "now" }, alice),
+      () => service.updateState({ ...common, state: "待认领", note: "test", changedAt: "now" }, alice),
+      () => service.updateContent({ ...common, title: "New title", note: "test", changedAt: "now" }, alice),
+      () => service.complete({ ...common, evidence: [], completedAt: "now" }, alice, { byHand: true }),
+      () => service.reopen({ ...common, reason: "test", changedAt: "now" }, alice),
+      () => service.setParent({ project: "eva-project", child: 1, parent: 2, requiredForParent: true }, alice)
+    ];
+    for (const write of writes) await expect(write()).rejects.toThrow("记录版本");
+    expect(client.updateCalls).toEqual([]);
+    expect(client.comments).toEqual([]);
+  });
+  it("rejects a stale edit and preserves the newer edit without adding a success activity", async () => {
+    const client = new FakeOpenProject([wp()]);
+    const service = new RequirementService(client, fieldMap);
+    const edit = { project: "eva-project", reference: 1, expectedLockVersion: 3,
+      title: "New title", note: "test", changedAt: "now" };
+    await service.updateContent(edit, alice);
+    await expect(service.updateContent({ ...edit, title: "Stale title" }, alice)).rejects.toThrow("Stale lockVersion");
+    expect(client.workPackages.get(1)?.subject).toBe("New title");
+    expect(client.updateCalls).toHaveLength(1);
+    expect(client.comments).toHaveLength(1);
+  });
+});
+
+
+it("continues a child batch after a rejected creation without leaving an unbound child", async () => {
+  const client = new FakeOpenProject([wp()]);
+  const create = client.createWorkPackage.bind(client);
+  client.createWorkPackage = async (project, payload) => {
+    if (payload.subject === "Rejected") throw new OpenProjectHttpError(422, "rejected", {});
+    return create(project, payload);
+  };
+  const service = new RequirementService(client, fieldMap);
+  const result = await service.createChildren({ project: "eva-project", parent: 1,
+    children: ["First", "Rejected", "Last"].map((title, index) => ({
+      ...requirementInput({ id: `CHILD-${index}`, title }), requiredForParent: true
+    })) }, alice);
+  expect(result.results.map(item => item.ok)).toEqual([true, false, true]);
+  expect(client.createCalls).toHaveLength(2);
+  expect(client.workPackages.size).toBe(3);
+  for (const call of client.createCalls) {
+    expect(call.payload._links).toMatchObject({ parent: { href: "/api/v3/work_packages/1" } });
+  }
+  expect(client.updateCalls).toEqual([]);
+});
+
+
+describe("claim identity binding and creation retries", () => {
+  it("rejects a copied claim session for edits, release and replay while preserving the real claimant", async () => {
+    const item = wp();
+    item._links.cfVisibility = { href: option("visibility", "public"), title: "公开" };
+    const client = new FakeOpenProject([item]);
+    client.users.set("mallory", 14);
+    const mallory: Principal = { userId: "mallory", displayName: "Mallory", role: "user" };
+    const service = new RequirementService(client, fieldMap);
+    const claim = { project: "eva-project", reference: 1, agent: "Codex", sessionId: "visible-session",
+      label: "Bob", scope: "work", claimedAt: "now", expectedLockVersion: 3 };
+    const claimed = await service.claim(claim, bob);
+    expect(claimed.item.claimedSession).toBe("visible-session");
+    const common = { project: "eva-project", reference: 1, sessionId: "visible-session", expectedLockVersion: 4 };
+    await expect(service.updateContent({ ...common, title: "stolen", note: "test", changedAt: "now" }, mallory)).rejects.toThrow();
+    await expect(service.updateState({ ...common, state: "待认领", note: "test", changedAt: "now" }, mallory)).rejects.toThrow();
+    await expect(service.complete({ ...common, completedAt: "now", evidence: [] }, mallory, { byHand: true })).rejects.toThrow();
+    await expect(service.release({ ...common, reason: "test", releasedAt: "now" }, mallory)).rejects.toThrow();
+    await expect(service.claim({ ...claim, expectedLockVersion: 4 }, mallory)).rejects.toThrow("Already claimed");
+    expect(client.updateCalls).toHaveLength(1);
+    const restarted = new RequirementService(client, fieldMap);
+    await restarted.updateContent({ ...common, title: "Bob's update", note: "test", changedAt: "now" }, bob);
+    await restarted.release({ ...common, expectedLockVersion: 5, reason: "done", releasedAt: "now" }, bob);
+    expect(client.workPackages.get(1)?.cfClaimedSession).toBeNull();
+  });
+  it("does not grant rights from a copied legacy session", async () => {
+    const item = wp({ cfClaimedSession: "old-session" });
+    item._links.cfVisibility = { href: option("visibility", "public"), title: "公开" };
+    const client = new FakeOpenProject([item]);
+    const service = new RequirementService(client, fieldMap);
+    await expect(service.updateContent({ project: "eva-project", reference: 1, sessionId: "old-session",
+      expectedLockVersion: 3, title: "stolen", note: "test", changedAt: "now" }, bob)).rejects.toThrow();
+    await expect(service.release({ project: "eva-project", reference: 1, sessionId: "old-session",
+      expectedLockVersion: 3, reason: "test", releasedAt: "now" }, bob)).rejects.toThrow();
+    expect(client.updateCalls).toEqual([]);
+  });
+  it.each([
+    { title: "corrected" }, { rawText: "corrected text" }, { acceptanceCriteria: "new acceptance" },
+    { visibility: "公开" as const }, { priority: "High" }, { modules: [] }, { sourceLabel: "different" }
+  ])("conflicts on changed creation content without rewriting the existing record (%j)", async change => {
+    const client = new FakeOpenProject([]);
+    const service = new RequirementService(client, fieldMap);
+    const first = await service.create(requirementInput(), alice);
+    await expect(service.create(requirementInput(change), alice)).rejects.toThrow("创建内容不同");
+    expect(client.workPackages.get(first.item.workPackageId)?.subject).toBe("Requirement");
+    expect(client.createCalls).toHaveLength(1);
+    expect(client.updateCalls).toEqual([]);
+    expect((await new RequirementService(client, fieldMap).create(requirementInput(), alice)).replayed).toBe(true);
+  });
+  it("ignores only the timestamps regenerated by the web adapter", async () => {
+    const client = new FakeOpenProject([]);
+    const service = new RequirementService(client, fieldMap);
+    const first = await service.create(requirementInput({ recordedAt: "2026-11-04T00:00:00Z", proposedAt: "2026-11-04T00:00:00Z" }), alice, { webCreation: true });
+    expect((await service.get(first.item.workPackageId, "eva-project", alice)).description).not.toContain("eva-create-v1");
+    expect((await service.create(requirementInput({ recordedAt: "2026-11-04T01:00:00Z", proposedAt: "2026-11-04T01:00:00Z" }), alice, { webCreation: true })).replayed).toBe(true);
+    await expect(service.create(requirementInput({ title: "edited form" }), alice, { webCreation: true })).rejects.toThrow("创建内容不同");
+  });
+  it("does not treat another user's public record as the caller's creation retry", async () => {
+    const client = new FakeOpenProject([]);
+    const service = new RequirementService(client, fieldMap);
+    await service.create(requirementInput({ visibility: "公开" }), alice);
+    await expect(service.create(requirementInput({ visibility: "公开" }), bob)).rejects.toThrow();
+    expect(client.createCalls).toHaveLength(1);
   });
 });

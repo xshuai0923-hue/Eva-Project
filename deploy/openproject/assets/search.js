@@ -7,7 +7,7 @@
 // decides who may see what. Everything is built as DOM nodes from text, so nothing an
 // author wrote is ever interpreted as HTML.
 
-import { createShell, el, loadingNode } from './shell.js?v=4a5e3f829e';
+import { createShell, el, loadingNode } from './shell.js?v=ed60c0da2c';
 import { localTime } from './prose.js?v=2f4b0da858';
 
 export const RESULTS_PATH = '/requirements/search';

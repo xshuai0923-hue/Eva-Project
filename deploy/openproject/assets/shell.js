@@ -218,7 +218,9 @@ export function createShell(context) {
   async function request(path, { params, failure = '请求失败', ...options } = {}) {
     const url = new URL(context.apiBase() + path, location.origin);
     const project = context.project();
-    if (project) url.searchParams.set('project', project);
+    // A modal may outlive a project switch. Its captured project takes precedence
+    // over the currently displayed one, including when it is the empty scope.
+    if (project && !(params ?? []).some(([key]) => key === 'project')) url.searchParams.set('project', project);
     for (const [key, value] of params ?? []) url.searchParams.append(key, value);
 
     const csrfToken = context.csrfToken();
@@ -254,10 +256,12 @@ export function createShell(context) {
    * the person edits what is actually stored.
    */
   async function guarded(run, onConflict) {
+    const container = context.root(), project = context.project();
     try {
       clearNotice();
       await run();
     } catch (error) {
+      if (context.root() !== container || !container?.isConnected || context.project() !== project) return;
       if (error.conflict) {
         notify(error.message + '（已载入最新内容，请重新确认后再保存）', 'error');
         await onConflict();

@@ -43,6 +43,91 @@ module EvaProjectPoolTypes
 end
 
 Rails.application.config.to_prepare do
+  unless WorkPackage.method_defined?(:evaproject_default_pool_fields)
+    WorkPackage.class_eval do
+      before_validation :evaproject_default_pool_fields, on: :create
+      before_save :evaproject_unique_record_id
+
+      def evaproject_unique_record_id
+        map_path = "/evaproject-runtime/field-map.json"
+        return unless project_id && File.file?(map_path)
+        field_id = JSON.parse(File.read(map_path)).dig("fields", "requirementId", "key")&.delete_prefix("customField")&.to_i
+        return unless field_id
+        identifier = custom_field_values.find { |entry| entry.custom_field_id == field_id }&.value
+        return if identifier.blank?
+        # All writers, including native work packages and multiple MCP processes,
+        # serialize the uniqueness check inside the save transaction.
+        lock_id = Digest::SHA256.hexdigest("eva-record:#{project_id}:#{identifier}")[0, 15].to_i(16)
+        self.class.connection.select_value("SELECT pg_advisory_xact_lock(#{lock_id})")
+        duplicates = self.class.where(project_id: project_id).where.not(id: id)
+          .joins(:custom_values).where(custom_values: { custom_field_id: field_id, value: identifier })
+        if duplicates.exists?
+          errors.add(:base, "此项目已存在相同的需求 ID，请刷新列表确认记录")
+          throw :abort
+        end
+      end
+
+      def evaproject_default_pool_fields
+        return unless type && EvaProjectPoolTypes.names.include?(type.name)
+        map_path = "/evaproject-runtime/field-map.json"
+        return unless File.file?(map_path)
+        map = JSON.parse(File.read(map_path))
+        values = custom_field_values.group_by(&:custom_field_id).to_h do |id, entries|
+          value = entries.first.custom_field.multi_value? ? entries.map(&:value) : entries.first.value
+          [id.to_s, value]
+        end
+        set_default = lambda do |name, value|
+          definition = map.fetch("fields")[name]
+          next unless definition
+          id = definition.fetch("key").delete_prefix("customField")
+          next if values[id].present?
+          if definition.fetch("kind") == "list"
+            href = definition.fetch("options", {})[value]
+            next unless href
+            value = href.split("/").last
+          end
+          values[id] = value
+        end
+        set_default.call("requirementId", "EVA-#{SecureRandom.uuid}")
+        set_default.call("visibility", "私有")
+        set_default.call("recordedAt", Time.current.iso8601)
+        if type.name == "交接"
+          set_default.call("handoffState", "草稿")
+          set_default.call("handoffExpectedAgent", "不限")
+        else
+          set_default.call("state", "待认领")
+          set_default.call("intakeStatus", "待确认")
+          set_default.call("verificationStatus", "未验证")
+          set_default.call("userAcceptance", "待确认")
+        end
+        principal_path = "/evaproject-runtime/mcp/principals.json"
+        if User.current&.logged? && File.file?(principal_path)
+          principals = JSON.parse(File.read(principal_path)).fetch("principals")
+          matches = principals.select do |entry|
+            entry["active"] && (entry.key?("openProjectLogin") ? entry["openProjectLogin"] : entry["userId"]) == User.current.login
+          end
+          if matches.one?
+            set_default.call("ownerUserId", matches.first.fetch("userId"))
+            set_default.call("requesterId", matches.first.fetch("userId"))
+            set_default.call("requesterName", User.current.name)
+            set_default.call("requesterType", "人")
+          end
+        end
+        self.custom_field_values = values
+      end
+    end
+  end
+
+  # Save the operation note in the same transaction as the versioned field update.
+  # A rejected PATCH must not leave behind a separate success-looking activity.
+  unless API::V3::WorkPackages::WorkPackagePayloadRepresenter.method_defined?(:evaproject_atomic_notes)
+    API::V3::WorkPackages::WorkPackagePayloadRepresenter.class_eval do
+      formattable_property :journal_notes
+      def evaproject_atomic_notes = true
+    end
+    WorkPackages::UpdateContract.attribute :journal_notes, permission: :add_work_package_comments
+  end
+
   # to_prepare runs again on every reload; without the guard the callback stacks up.
   unless Project.method_defined?(:evaproject_apply_pool_types)
     Project.class_eval do

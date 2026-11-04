@@ -1,8 +1,10 @@
+import { createHash } from "node:crypto";
 import { principalLogin } from "./principal-login.js";
 import { HANDOFF_FIELD } from "./handoff-service.js";
 import { OpenProjectHttpError, type OpenProjectApi } from "./openproject.js";
 import {
   FIELD,
+  boundClaimSession,
   hrefId,
   linkTitle,
   OpenProjectRecordService,
@@ -1256,7 +1258,7 @@ export class RequirementService extends OpenProjectRecordService {
     return [...counts.entries()].sort(([a], [b]) => order(a, b)).map(([module, open]) => ({ module, open }));
   }
 
-  private async everyVisibleProject(principal: Principal): Promise<Array<{ id: number; identifier: string; name: string }>> {
+  async everyVisibleProject(principal: Principal): Promise<Array<{ id: number; identifier: string; name: string }>> {
     const projects: Array<{ id: number; identifier: string; name: string }> = [];
     let cursor: string | null = null;
     do {
@@ -1478,7 +1480,7 @@ export class RequirementService extends OpenProjectRecordService {
         return !state || !this.map.completionStates.includes(state);
       });
     const state = this.readList(workPackage, FIELD.state)[0] ?? null;
-    const body = workPackage.description?.raw ?? "";
+    const body = (workPackage.description?.raw ?? "").replace(/\n*^<!-- eva-create-v1:[a-f0-9]{64} -->$/gm, "");
     const wanted = sections?.map(name => name.trim()).filter(Boolean) ?? null;
     // Reading a record should not cost its whole history. Naming sections returns those
     // and leaves the body out; naming none is exactly what this always did, because
@@ -1584,12 +1586,23 @@ export class RequirementService extends OpenProjectRecordService {
   async create(
     input: CreateRequirementInput,
     principal: Principal,
-    options: { sign?: boolean } = {}
+    options: { sign?: boolean; webCreation?: boolean } = {}
   ): Promise<{ replayed: boolean; item: RequirementSummary }> {
+    return this.serializeCreation(input.project, input.id, () => this.createUnlocked(input, principal, options));
+  }
+
+  private async createUnlocked(input: CreateRequirementInput, principal: Principal,
+    options: { sign?: boolean; webCreation?: boolean }): Promise<{ replayed: boolean; item: RequirementSummary }> {
+    if (!input.title.trim() || !input.id.trim()) throw new RequirementValidationError("标题和需求 ID 不能为空");
     const project = await this.visibleProject(input.project, principal);
+    await this.assertCreatePermission(project, principal);
     const existing = await this.findByRequirementId(input.id, project.identifier, principal);
     if (existing) {
-      this.assertReadable(existing, principal);
+      this.assertOwnerOrAdmin(existing, principal);
+      const stored = [...(existing.description?.raw ?? "").matchAll(/^<!-- eva-create-v1:([a-f0-9]{64}) -->$/gm)].at(-1)?.[1];
+      if (!stored || stored !== this.creationFingerprint(input, options.webCreation === true)) {
+        throw new RequirementConflictError("相同需求 ID 的创建内容不同或旧记录无法核对，请读取记录后使用更新接口，不会覆盖已保存内容");
+      }
       return { replayed: true, item: this.summarize(existing) };
     }
     if (principal.role !== "admin" && input.requesterId && input.requesterId !== principal.userId) {
@@ -1606,13 +1619,16 @@ export class RequirementService extends OpenProjectRecordService {
     // at the top level by a second call that did not happen (#148, #192). Optional: a
     // requirement can stand on its own.
     const parent = input.parent === undefined ? null : await this.resolve(input.parent, input.project, principal);
-    if (parent) this.assertOwnerOrAdmin(parent, principal);
+    if (parent) {
+      this.assertOwnerOrAdmin(parent, principal);
+      if (this.isComplete(parent)) throw new RequirementValidationError("请先重新打开主需求，再增加分工子任务");
+    }
 
     const payload: Record<string, unknown> = {
       subject: input.title,
       description: {
         format: "markdown",
-        raw: this.initialDescription(input)
+        raw: this.initialDescription(input) + `\n\n<!-- eva-create-v1:${this.creationFingerprint(input, options.webCreation === true)} -->`
       },
       _links: {
         type: { href: input.typeId === undefined ? this.map.typeHref : await this.typeHref(input.project, input.typeId, principal) },
@@ -1639,7 +1655,7 @@ export class RequirementService extends OpenProjectRecordService {
     this.writeField(payload, FIELD.sourceMessageId, input.sourceMessageId ?? null);
     this.writeField(payload, FIELD.sourceLabel, input.sourceLabel);
     this.writeField(payload, FIELD.claimedAgent, input.claimedAgent ?? null);
-    this.writeField(payload, FIELD.claimedSession, input.claimedSession ?? null);
+    this.writeField(payload, FIELD.claimedSession, input.claimedSession ? boundClaimSession(principal.userId, input.claimedSession) : null);
     this.writeField(payload, FIELD.claimLabel, input.claimLabel ?? null);
     this.writeField(payload, FIELD.claimedAt, input.claimedAt ?? null);
     this.writeField(payload, FIELD.claimScope, input.claimScope ?? null);
@@ -1662,29 +1678,33 @@ export class RequirementService extends OpenProjectRecordService {
     parent: RequirementSummary;
     results: Array<Record<string, unknown>>;
   }> {
+    await this.assertEditPermission(input.project, principal);
     const parent = await this.resolve(input.parent, input.project, principal);
     this.assertOwnerOrAdmin(parent, principal);
+    if (this.isComplete(parent)) throw new RequirementValidationError("请先重新打开主需求，再增加分工子任务");
     const results: Array<Record<string, unknown>> = [];
     for (const child of input.children) {
       try {
-        // Signed once, by setParent below: its note lands in the creation's entry
-        // together with the parent it binds, rather than a second entry of its own.
+        // Create already bound to its parent so a failed bind cannot leave an orphan.
         const created = await this.create({
           ...child,
           project: input.project,
-          requiredForParent: child.requiredForParent
-        }, principal, { sign: false });
-        const bound = await this.setParent({
-          project: input.project,
-          child: created.item.workPackageId,
           parent: parent.id,
           requiredForParent: child.requiredForParent
         }, principal);
+        if (created.replayed) {
+          const existing = await this.resolve(created.item.workPackageId, input.project, principal);
+          const link = existing._links.parent;
+          if (Array.isArray(link) || link?.href !== `/api/v3/work_packages/${parent.id}` ||
+              Boolean(existing[this.field(FIELD.requiredForParent).key]) !== child.requiredForParent) {
+            throw new RequirementConflictError("Existing child has different parent settings; reload and use requirements_set_parent with its lockVersion");
+          }
+        }
         results.push({
           id: child.id,
           ok: true,
           created: !created.replayed,
-          requirement: this.compactSummary(bound)
+          requirement: this.compactSummary(created.item)
         });
       } catch (error) {
         results.push({
@@ -1708,11 +1728,13 @@ export class RequirementService extends OpenProjectRecordService {
     claimedAt: string;
     expectedLockVersion?: number;
   }, principal: Principal): Promise<{ replayed: boolean; item: RequirementSummary }> {
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolve(input.reference, input.project, principal);
     this.assertReadable(workPackage, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
+    if (this.isComplete(workPackage)) throw new RequirementValidationError("已完成的需求请先重新打开，再认领");
     const currentSession = this.readText(workPackage, FIELD.claimedSession);
-    if (currentSession === input.sessionId) {
+    if (this.matchesClaim(workPackage, principal, input.sessionId)) {
       return { replayed: true, item: this.summarize(workPackage) };
     }
     if (currentSession) {
@@ -1724,14 +1746,14 @@ export class RequirementService extends OpenProjectRecordService {
     }
 
     const payload: Record<string, unknown> = { lockVersion: workPackage.lockVersion };
-    this.writeField(payload, FIELD.claimedAgent, input.agent);
-    this.writeField(payload, FIELD.claimedSession, input.sessionId);
+    this.writeField(payload, FIELD.claimedAgent, input.agent || null);
+    this.writeField(payload, FIELD.claimedSession, boundClaimSession(principal.userId, input.sessionId));
     this.writeField(payload, FIELD.claimLabel, input.label);
     this.writeField(payload, FIELD.claimedAt, input.claimedAt);
     this.writeField(payload, FIELD.claimScope, input.scope);
     this.writeField(payload, FIELD.state, "进行中");
     this.addStatusLink(payload, "进行中");
-    await this.journalNote(workPackage.id, "", principal);
+    this.attachJournal(payload, "认领需求", principal);
     const updated = await this.updateWithConflict(workPackage.id, payload);
     return { replayed: false, item: this.summarize(updated) };
   }
@@ -1745,6 +1767,7 @@ export class RequirementService extends OpenProjectRecordService {
     expectedLockVersion?: number;
     takeover?: boolean;
   }, principal: Principal): Promise<RequirementSummary> {
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolve(input.reference, input.project, principal);
     this.assertReadable(workPackage, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
@@ -1755,7 +1778,7 @@ export class RequirementService extends OpenProjectRecordService {
     // A session that ends without releasing would otherwise hold its claim forever:
     // the owner could not clear it either, leaving the requirement permanently stuck.
     // Taking over stays deliberate — it needs an explicit flag and is kept in history.
-    const takeover = currentSession !== input.sessionId;
+    const takeover = !this.matchesClaim(workPackage, principal, input.sessionId);
     if (takeover) {
       if (!input.takeover) {
         throw new RequirementConflictError(
@@ -1773,7 +1796,8 @@ export class RequirementService extends OpenProjectRecordService {
     }
     this.writeField(payload, FIELD.state, "待认领");
     this.addStatusLink(payload, "待认领");
-    await this.journalNote(workPackage.id, record, principal);
+    if (!input.reason.trim()) throw new RequirementValidationError("请填写释放原因");
+    this.attachJournal(payload, record, principal);
     return this.summarize(await this.updateWithConflict(workPackage.id, payload));
   }
 
@@ -1789,6 +1813,7 @@ export class RequirementService extends OpenProjectRecordService {
     // An agent finishes a requirement through requirements_complete, with its evidence. A
     // person on the pool page finishes one by hand like any other change of state, and that
     // is their acceptance (Brian 2026-09-23, #188).
+    await this.assertEditPermission(input.project, principal);
     const finishing = this.map.completionStates.includes(input.state);
     if (finishing && !byHand) {
       throw new RequirementValidationError("Use requirements_complete for completion");
@@ -1800,6 +1825,16 @@ export class RequirementService extends OpenProjectRecordService {
     if (!byHand && CLAIMED_STATES.includes(input.state)) {
       this.assertClaimed(workPackage, `move it to ${input.state}`);
     }
+    if (this.isComplete(workPackage) && !finishing) {
+      throw new RequirementValidationError("请使用重新打开操作，并填写原因");
+    }
+    if (finishing) {
+      const blockers = await this.blockingDependencies(workPackage, principal);
+      const children = await this.requiredIncompleteChildren(workPackage, principal);
+      if (blockers.length || children.length) {
+        throw new RequirementConflictError("请先完成前置依赖和必需子任务，再完成此需求");
+      }
+    }
     const payload: Record<string, unknown> = { lockVersion: workPackage.lockVersion };
     this.writeField(payload, FIELD.state, input.state);
     this.addStatusLink(payload, input.state);
@@ -1810,12 +1845,38 @@ export class RequirementService extends OpenProjectRecordService {
         `完成时间：${input.changedAt}\n\n${principal.userId} 在网页上手动改为「${input.state}」，未附交付证据。`);
       if (input.state === "已完成") this.writeField(payload, FIELD.userAcceptance, "已验收");
     }
-    await this.journalNote(
-      workPackage.id,
-      `- ${input.changedAt}：状态更新为「${input.state}」${finishing ? "，未附交付证据" : ""}。${input.note}`,
-      principal
-    );
+    this.attachJournal(payload, `- ${input.changedAt}：状态更新为「${input.state}」${finishing ? "，未附交付证据" : ""}。${input.note}`, principal);
     return this.summarize(await this.updateWithConflict(workPackage.id, payload));
+  }
+
+  async reopen(input: {
+    project: string; reference: string | number; reason: string; changedAt: string;
+    expectedLockVersion?: number;
+  }, principal: Principal): Promise<RequirementSummary> {
+    if (!input.reason.trim()) throw new RequirementValidationError("请填写重新打开的原因");
+    await this.assertEditPermission(input.project, principal);
+    const item = await this.resolve(input.reference, input.project, principal);
+    this.assertOwnerOrAdmin(item, principal);
+    this.assertExpectedVersion(item, input.expectedLockVersion);
+    if (!this.isComplete(item)) throw new RequirementValidationError("只有已完成的需求可以重新打开");
+    const payload: Record<string, unknown> = { lockVersion: item.lockVersion };
+    this.writeField(payload, FIELD.state, "待认领");
+    this.addStatusLink(payload, "待认领");
+    for (const field of [FIELD.claimedAgent, FIELD.claimedSession, FIELD.claimLabel, FIELD.claimedAt, FIELD.claimScope]) {
+      this.writeField(payload, field, null);
+    }
+    this.writeField(payload, FIELD.verificationStatus, "未验证");
+    this.writeField(payload, FIELD.userAcceptance, "待确认");
+    this.attachJournal(payload, `${input.changedAt}：重新打开，原完成和验收记录保留。${input.reason}`, principal);
+    return this.summarize(await this.updateWithConflict(item.id, payload));
+  }
+
+  private attachJournal(payload: Record<string, unknown>, note: string, principal: Principal): void {
+    payload.journalNotes = { raw: principal.via ? signed(note, principal.userId, principal.via) : note };
+  }
+
+  private isComplete(item: WorkPackage): boolean {
+    return this.map.completionStates.includes(this.readList(item, FIELD.state)[0] ?? "");
   }
 
   async updateContent(input: {
@@ -1837,6 +1898,7 @@ export class RequirementService extends OpenProjectRecordService {
         input.scope === undefined && input.acceptanceCriteria === undefined) {
       throw new RequirementValidationError("At least one content field must be provided");
     }
+    await this.assertEditPermission(input.project, principal);
     const workPackage = await this.resolve(input.reference, input.project, principal);
     this.assertReadable(workPackage, principal);
     this.assertExpectedVersion(workPackage, input.expectedLockVersion);
@@ -1864,11 +1926,7 @@ export class RequirementService extends OpenProjectRecordService {
     if (input.responsibleAgent !== undefined) {
       this.writeField(payload, FIELD.responsibleAgent, input.responsibleAgent);
     }
-    await this.journalNote(
-      workPackage.id,
-      `- ${input.changedAt}：更新需求正文。${input.note}`,
-      principal
-    );
+    this.attachJournal(payload, `- ${input.changedAt}：更新需求正文。${input.note}`, principal);
     return this.summarize(await this.updateWithConflict(workPackage.id, payload));
   }
 
@@ -2127,11 +2185,15 @@ export class RequirementService extends OpenProjectRecordService {
     requiredForParent: boolean;
     expectedLockVersion?: number;
   }, principal: Principal): Promise<RequirementSummary> {
+    await this.assertEditPermission(input.project, principal);
     const child = await this.resolve(input.child, input.project, principal);
     this.assertOwnerOrAdmin(child, principal);
     this.assertExpectedVersion(child, input.expectedLockVersion);
     const parent = input.parent === null ? null : await this.resolve(input.parent, input.project, principal);
-    if (parent) this.assertOwnerOrAdmin(parent, principal);
+    if (parent) {
+      this.assertOwnerOrAdmin(parent, principal);
+      if (this.isComplete(parent)) throw new RequirementValidationError("请先重新打开主需求，再增加分工子任务");
+    }
     if (parent?.id === child.id) {
       throw new RequirementValidationError("A requirement cannot be its own parent");
     }
@@ -2143,7 +2205,7 @@ export class RequirementService extends OpenProjectRecordService {
       }
     };
     this.writeField(payload, FIELD.requiredForParent, input.requiredForParent);
-    await this.journalNote(child.id, "", principal);
+    this.attachJournal(payload, "更新父子关系", principal);
     return this.summarize(await this.updateWithConflict(child.id, payload));
   }
 
@@ -2152,6 +2214,7 @@ export class RequirementService extends OpenProjectRecordService {
     prerequisite: string | number;
     dependent: string | number;
   }, principal: Principal): Promise<Relation> {
+    await this.assertEditPermission(input.project, principal);
     const [prerequisite, dependent] = await Promise.all([
       this.resolve(input.prerequisite, input.project, principal),
       this.resolve(input.dependent, input.project, principal)
@@ -2253,7 +2316,8 @@ export class RequirementService extends OpenProjectRecordService {
     evidence: CompletionEvidence[];
     expectedLockVersion?: number;
   }, principal: Principal, { byHand = false }: { byHand?: boolean } = {}): Promise<RequirementSummary> {
-    if (input.evidence.length === 0) {
+    await this.assertEditPermission(input.project, principal);
+    if (input.evidence.length === 0 && !byHand) {
       throw new RequirementValidationError("Completion evidence is required");
     }
     // Checked here as well as by the tool's schema: the pool page posts evidence straight
@@ -2301,7 +2365,9 @@ export class RequirementService extends OpenProjectRecordService {
     const payload: Record<string, unknown> = {
       lockVersion: workPackage.lockVersion,
       description: this.withEvidence(workPackage,
-        `完成时间：${input.completedAt}\n\n\`\`\`json\n${JSON.stringify(input.evidence, null, 2)}\n\`\`\``)
+        `完成时间：${input.completedAt}\n\n` + (byHand && input.evidence.length === 0
+          ? `${principal.userId} 在网页上人工验收完成，未附交付证据。`
+          : `\`\`\`json\n${JSON.stringify(input.evidence, null, 2)}\n\`\`\``))
     };
     this.writeField(payload, FIELD.state, "已完成");
     this.writeField(payload, FIELD.verificationStatus, "已验证");
@@ -2316,11 +2382,7 @@ export class RequirementService extends OpenProjectRecordService {
       ...(commits.length ? [`提交 ${commits.join("、")}`] : []),
       ...(outside ? [`仓库外文件 ${outside} 处`] : [])
     ];
-    await this.journalNote(
-      workPackage.id,
-      `- ${input.completedAt}：完成。交付证据 ${input.evidence.length} 条，${delivered.join("；")}`,
-      principal
-    );
+    this.attachJournal(payload, `- ${input.completedAt}：完成。交付证据 ${input.evidence.length} 条，${delivered.join("；")}`, principal);
     return this.summarize(await this.updateWithConflict(workPackage.id, payload));
   }
 
@@ -2396,6 +2458,22 @@ export class RequirementService extends OpenProjectRecordService {
       children: nested,
       childrenTruncated: level >= maxDepth && children.length > 0
     };
+  }
+
+  private creationFingerprint(input: CreateRequirementInput, webCreation: boolean): string {
+    const normalized = {
+      ...input, project: undefined, modules: [...input.modules].sort(),
+      typeId: input.typeId ?? Number(hrefId(this.map.typeHref)), parent: input.parent ?? null,
+      scope: input.scope?.trim() || null, acceptanceCriteria: input.acceptanceCriteria?.trim() || null,
+      requiredForParent: input.requiredForParent ?? false,
+      verificationStatus: input.verificationStatus ?? "未验证", userAcceptance: input.userAcceptance ?? "待确认",
+      ...Object.fromEntries(["requesterName", "requesterId", "recordedAt", "sourceUpdatedAt", "proposedAt",
+        "sourceSessionId", "sourceMessageId", "claimedAgent", "claimedSession", "claimLabel", "claimedAt", "claimScope"]
+        .map(key => [key, input[key as keyof CreateRequirementInput] ?? null])),
+      // These timestamps are generated by the web adapter on each attempt, not form input.
+      ...(webCreation ? { recordedAt: null, proposedAt: null } : {})
+    };
+    return createHash("sha256").update(JSON.stringify(Object.entries(normalized).sort(([a], [b]) => a.localeCompare(b)))).digest("hex");
   }
 
   private initialDescription(input: CreateRequirementInput): string {

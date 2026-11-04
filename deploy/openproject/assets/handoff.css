@@ -241,3 +241,27 @@
   .mp-handoff, .hidden-navigation .mp-handoff { padding: 4px 0 24px; }
   .hidden-navigation .mp-handoff > aside > .mp-filters:first-child::before { content: ""; flex: none; width: 24px; }
 }
+
+/* Shared creation dialog, scoped independently of the page root. */
+.eva-create { box-sizing: border-box; width: min(620px, calc(100vw - 32px)); max-height: 88vh; padding: 24px; border: 1px solid var(--borderColor-default, #ccc); border-radius: 12px; background: var(--bgColor-default, #fff); color: var(--fgColor-default, #222); }
+.eva-create::backdrop { background: rgb(0 0 0 / 35%); }
+.eva-create h2 { margin: 0 0 18px; }
+.eva-create-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.eva-create-field input, .eva-create-field textarea, .eva-create-field select { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid var(--borderColor-default, #ccc); border-radius: 6px; background: var(--bgColor-default, #fff); color: inherit; font: inherit; }
+.eva-create-field textarea { resize: vertical; }
+.eva-create-actions { display: flex; justify-content: flex-end; gap: 12px; }
+.eva-create-actions button { padding: 8px 16px; cursor: pointer; }
+.eva-create-error { color: var(--fgColor-danger, #b42318); }
+.eva-create-hint { font-size: 13px; color: var(--fgColor-muted, #666); }
+.eva-create-project { padding: 10px; background: var(--bgColor-muted, #f5f0e8); border-radius: 6px; overflow-wrap: anywhere; }
+.eva-create { overflow-y: auto; }
+.eva-create-actions { position: sticky; bottom: -24px; padding: 12px 0; background: var(--bgColor-default, #fff); flex-wrap: wrap; z-index: 1; }
+.eva-todo-editor { padding: 12px; margin: 12px 0; border: 1px solid var(--borderColor-default, #ccc); border-radius: 8px; }
+.eva-picker { margin: 12px 0; }
+.eva-picker input, .eva-picker select { box-sizing: border-box; width: 100%; padding: 8px; }
+.eva-picker > button { margin-left: 8px; }
+.mp-handoff-search { box-sizing: border-box; width: 100%; margin: 6px 0 12px; padding: 8px; }
+.mp-handoff .mp-card-thread { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mp-handoff .mp-detail-id { overflow-wrap: anywhere; }
+
+.eva-create-actions .mp-is-primary { background: var(--button-primary-bgColor-rest, #b96546); color: var(--button-primary-fgColor-rest, #fff); border: 1px solid transparent; border-radius: 6px; }

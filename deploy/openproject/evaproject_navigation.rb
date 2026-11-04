@@ -34,9 +34,10 @@ end
 # Opened globally it lands on the project list; a project is chosen there and filtering
 # happens inside it.
 #
-# Both sidebars carry the same entries in the same order — 首页、需求池、上下文交接、工作包 —
-# so where someone came in from does not change what they can reach (Brian 2026-09-23,
-# #183). 首页 is the core entry in the global sidebar and an entry of ours in a project's.
+# Both sidebars keep the daily entries — 首页、需求池、上下文交接、工作包 — in the
+# same relative order. Native project navigation stays available too: the global
+# project list, and each project's members and settings with OpenProject permissions.
+# 首页 is the core entry in the global sidebar and an entry of ours in a project's.
 
 # Register sidebar entries after the core menus so relative positions have targets.
 Rails.application.config.after_initialize do
@@ -159,7 +160,7 @@ Rails.application.config.after_initialize do
               if: ->(_) { User.current.logged? }
   end
 
-  # Brian 2026-09-22：入口太多。全局侧栏只留 首页、需求池、上下文交接、工作包。
+  # 全局侧栏保留日常工作入口及原生项目列表，其他非核心模块继续隐藏。
   # 工作包是有意留的兜底编辑入口——变更历史、全文搜索、导出、甘特只有原生页面有。
   # 删这一步放在 after_initialize 里：这几条由核心在更早的阶段注册，在文件顶层删会
   # 删到还不存在的东西。exists? 先问一句，免得哪天核心改名把 web 一起带崩。
@@ -170,20 +171,17 @@ Rails.application.config.after_initialize do
   # created a project. Deleting them here keeps the sidebar to those entries whatever
   # anyone enables.
   Redmine::MenuManager.map :global_menu do |menu|
-    %i[my_page portfolios projects gantt wikis
+    %i[my_page portfolios gantt wikis
        my_time_tracking activity calendar_view team_planners
        boards meetings news cost_reports_global].each do |name|
       menu.delete(name) if menu.exists?(name)
     end
   end
 
-  # Brian 2026-09-22：项目内侧栏同样只留用得上的几条。成员、项目设置都走头像菜单里的
-  # 「管理」→ 项目，管理员照样进得去，所以这里去掉不会把人锁在外面。项目概览也不再是
-  # 落地页，进项目一律转到对应页或需求池（#195，见 EvaProjectProjectLanding）。
+  # 成员和项目设置保留原生入口及其权限检查。管理后台的「项目列表」是显示设置，
+  # 不能替代真实项目列表或成员管理。仅隐藏概览：项目默认仍落在需求池。
   Redmine::MenuManager.map :project_menu do |menu|
-    %i[overview members settings].each do |name|
-      menu.delete(name) if menu.exists?(name)
-    end
+    menu.delete(:overview) if menu.exists?(:overview)
   end
 
   # 管理里 OpenProject 自带的「备份」只能凭备份令牌单次打包下载，不能定时、不能恢复。
@@ -212,17 +210,17 @@ Rails.application.config.after_initialize do
 
       if User.current.logged?
         branding += <<~HTML
-          <link rel="stylesheet" href="/evaproject/agent-access.css?v=7922cd7181">
-          <script type="module" src="/evaproject/agent-access.js?v=8c4c4601b8"></script>
+          <link rel="stylesheet" href="/evaproject/agent-access.css?v=c2443cd487">
+          <script type="module" src="/evaproject/agent-access.js?v=2a3245939f"></script>
           <link rel="stylesheet" href="/evaproject/prose.css?v=127223fef1">
-          <link rel="stylesheet" href="/evaproject/handoff.css?v=88a827eb8f">
-          <script type="module" src="/evaproject/handoff.js?v=dd932df31b" data-evaproject-handoff></script>
-          <link rel="stylesheet" href="/evaproject/requirements.css?v=3f224f8d93">
-          <script type="module" src="/evaproject/requirements.js?v=463c682d0c" data-evaproject-requirements></script>
-          <link rel="stylesheet" href="/evaproject/dashboard.css?v=f796da709f">
-          <script type="module" src="/evaproject/dashboard.js?v=3d3a9e34e2" data-evaproject-dashboard></script>
+          <link rel="stylesheet" href="/evaproject/handoff.css?v=ac40e81da5">
+          <script type="module" src="/evaproject/handoff.js?v=8468477eb1" data-evaproject-handoff></script>
+          <link rel="stylesheet" href="/evaproject/requirements.css?v=97cdee4fb8">
+          <script type="module" src="/evaproject/requirements.js?v=93036b3a48" data-evaproject-requirements></script>
+          <link rel="stylesheet" href="/evaproject/dashboard.css?v=784f83cfdb">
+          <script type="module" src="/evaproject/dashboard.js?v=25d3748ccb" data-evaproject-dashboard></script>
           <link rel="stylesheet" href="/evaproject/search.css?v=a314a3a893">
-          <script type="module" src="/evaproject/search.js?v=47f314962d" data-evaproject-search></script>
+          <script type="module" src="/evaproject/search.js?v=bf80cf4def" data-evaproject-search></script>
         HTML
       end
 
@@ -231,9 +229,9 @@ Rails.application.config.after_initialize do
       if User.current.admin?
         branding += <<~HTML
           <link rel="stylesheet" href="/evaproject/tokens.css?v=c153412794">
-          <script type="module" src="/evaproject/tokens.js?v=1cd0fd7adf" data-evaproject-tokens></script>
+          <script type="module" src="/evaproject/tokens.js?v=61a60cecd6" data-evaproject-tokens></script>
           <link rel="stylesheet" href="/evaproject/backup.css?v=f092f9a839">
-          <script type="module" src="/evaproject/backup.js?v=303f145806" data-evaproject-backup></script>
+          <script type="module" src="/evaproject/backup.js?v=550b0df3e8" data-evaproject-backup></script>
         HTML
       end
 

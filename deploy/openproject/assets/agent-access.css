@@ -14,6 +14,10 @@
 
 .eva-guidelines { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--borderColor-default); }
 .eva-agent-access h2 { font-size: 19px; margin: 22px 0 12px; }
+.eva-agent-usage { margin: 24px 0; padding: 18px; border: 1px solid var(--borderColor-default, #ccc); border-radius: 10px; }
+.eva-agent-usage details { margin-top: 18px; }
+.eva-agent-usage summary { cursor: pointer; margin-bottom: 10px; }
+.eva-agent-usage select { max-width: 100%; }
 .eva-guidelines summary { cursor: pointer; margin-bottom: 12px; }
 .eva-guidelines .eva-agent-actions { margin-top: 16px; }
 .eva-agent-install-actions > * { margin: 0; flex-shrink: 0; }

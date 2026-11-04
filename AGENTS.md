@@ -17,3 +17,10 @@
 
 - 当前开发机上的 Codex 与 Claude Code 继续连接内部 M-Project。Eva Plugin 仅在仓库内封装及隔离验证，不安装或配置到本机 Agent；真实客户端接入由 Brian 在另一台设备测试。
 - 家中联调历史目标为 `brian@192.168.80.4`，Eva 独立根目录 `/Users/Shared/Eva-Project`、Colima profile `evaproject`、Compose 项目 `eva-project`、端口 28080/28081；原 M-Project 使用其原目录、profile 与 8080/8081。这是历史记录，当前目标以当次用户指定的服务器为准；新服务器的主机、域名与账号须在实际部署会话中确认，不根据历史地址自动发布。
+
+
+## Eva Plugin 接入选择（2026-11-04）
+
+- 用户明确选择：仅安装 Eva Project Plugin 并连接个人 Eva 账号；本仓库继续使用上述内部 M-Project 绑定（`eva-project` / `9`），不改绑、不迁移旧记录。
+- 本仓库暂不接入 Eva，不建立 Eva 项目绑定，不自动向 Eva 登记需求或交接；不重复询问。用户主动要求改用 Eva 时，再确认目标项目和管理系统选择。
+- 本次 Codex 安装与连接由用户明确授权，作为上方“Eva Plugin 仅在仓库内封装及隔离验证，不安装或配置到本机 Agent”历史约定的例外；保留其他业务、环境和部署限制，Claude Code 的接入配置本次未变更。

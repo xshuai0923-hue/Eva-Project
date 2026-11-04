@@ -8,7 +8,7 @@
 // Everything is built as DOM nodes from text, so nothing a user typed — a display name,
 // a user id — is ever interpreted as HTML.
 
-import { createShell, el } from './shell.js?v=4a5e3f829e';
+import { createShell, el } from './shell.js?v=ed60c0da2c';
 
 let root = null;
 let apiBase = '';

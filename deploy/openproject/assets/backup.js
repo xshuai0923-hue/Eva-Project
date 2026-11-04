@@ -8,7 +8,7 @@
 //
 // Built as DOM nodes from text, like the other module pages.
 
-import { createShell, el, loadingNode } from './shell.js?v=4a5e3f829e';
+import { createShell, el, loadingNode } from './shell.js?v=ed60c0da2c';
 
 let root = null;
 let apiBase = '';

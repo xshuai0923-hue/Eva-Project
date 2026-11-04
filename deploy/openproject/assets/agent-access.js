@@ -61,6 +61,50 @@ function guidelines(root, clientSelect) {
   verification.append(el('h2', '4. 验证自动协作'), el('p', '开启新会话，让 Agent 报告已加载的全局规范、当前 Eva 账号与项目绑定。已绑定项目中的明确新需求会触发查重、登记和执行；交接按用户指令触发。未记录项目 ID 时先询问是否接入，未获同意继续原流程；部署等操作仍按用户授权。', 'eva-agent-help'));
   root.append(verification);
 }
+
+function dailyUsage(root) {
+  const section = el('section', '', 'eva-agent-usage');
+  section.append(el('h2', '已经接入？直接在 Agent 里这样说'),
+    el('p', '查看记录可以直接发指令；修改代码先打开对应代码仓库。连接账号后，仓库是否默认使用 Eva 仍由项目规范决定。', 'eva-agent-help'));
+  const identity = el('p', '正在查询网页账号与可访问项目…', 'eva-agent-help');
+  const label = el('label', '选择示例所用项目：');
+  const projects = el('select'); projects.setAttribute('aria-label', '日常指令所用项目'); projects.disabled = true;
+  label.append(projects); section.append(identity, label);
+  const examples = [
+    ['查看需求', name => `查看 Eva 的“${name}”中的需求和交接，先列摘要，不修改业务数据。`],
+    ['今天收工', name => `今天先到这里，把当前工作的进度保存到 Eva 的“${name}”，关联实际处理的需求并保存交接。核对已完成、未完成、新增修改删除的文件、提交状态、实际验证结果、阻塞和下一步，保存后回读。不把未验收的需求标为完成。`],
+    ['下次继续', name => `读取 Eva 的“${name}”中与这项工作有关的最新交接；有多个候选时先列摘要让我选择，核对代码仓库和需求最新状态后继续已授权的工作。`]
+  ];
+  const controls = [];
+  for (const [title, prompt] of examples) {
+    const block = el('details'), summary = el('summary', title), area = el('textarea');
+    area.readOnly = true; area.rows = 4; area.setAttribute('aria-label', title + '指令');
+    const button = el('button', `复制“${title}”指令`); button.disabled = true;
+    const status = el('p'); status.setAttribute('role', 'status');
+    button.onclick = () => void copyText(area, status);
+    block.append(summary, area, button, status); section.append(block);
+    controls.push({ area, button, prompt });
+  }
+  const update = () => {
+    const name = projects.selectedOptions[0]?.textContent;
+    for (const control of controls) {
+      control.area.value = name ? control.prompt(name) : '';
+      control.button.disabled = !name;
+    }
+  };
+  projects.onchange = update;
+  section.append(el('p', '请在实际工作的会话结束前保存交接。新会话可以查已保存的内容，无法保证恢复未保存的讨论。网页账号可用并不表示本机插件已经加载，请在新会话核对连接与 4 个 Skills。', 'eva-agent-help'));
+  root.append(section);
+  json('/requirements/api/session').then(session => {
+    if (!section.isConnected) return;
+    identity.textContent = `网页账号：${session.user?.displayName || session.user?.userId || '未知'}；可访问 ${session.projects?.length ?? 0} 个项目。`;
+    for (const project of session.projects ?? []) {
+      const option = el('option', project.name); option.value = project.identifier; projects.append(option);
+    }
+    projects.disabled = !projects.options.length; update();
+    if (!projects.options.length) identity.textContent += ' 请联系项目管理员确认访问权限。';
+  }).catch(error => { if (section.isConnected) identity.textContent = error.message; });
+}
 async function mount() {
   const root = document.querySelector('#eva-agent-access');
   if (!root || root.dataset.mounted) return;
@@ -85,6 +129,7 @@ async function mount() {
       actions.append(approve, deny); approval.append(actions, status);
     } catch (error) { approval.append(el('p', error.message, 'eva-agent-error')); }
   }
+  dailyUsage(root);
   const server = root.dataset.mcpUrl;
   if (!server) { root.append(el('p', '管理员尚未配置 Agent 服务地址，请配置后再安装。')); return; }
   root.append(el('h2', '1. 安装插件与连接账号'));

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HandoffService, type SaveHandoffInput } from "./handoff-service.js";
-import type { OpenProjectApi } from "./openproject.js";
+import { OpenProjectHttpError, type OpenProjectApi } from "./openproject.js";
 import { RequirementConflictError } from "./record-service.js";
 import type {
   Attachment,
@@ -127,6 +127,8 @@ function titled(links: Record<string, unknown>): Record<string, unknown> {
 }
 
 class FakeOpenProject implements OpenProjectApi {
+  async canCreateWorkPackages(): Promise<boolean> { return true; }
+  async canEditWorkPackages(): Promise<boolean> { return true; }
   workPackages = new Map<number, WorkPackage>();
   createCalls: Array<{ projectId: number; payload: Record<string, unknown> }> = [];
   updateCalls: Array<{ id: number; payload: Record<string, unknown> }> = [];
@@ -201,7 +203,9 @@ class FakeOpenProject implements OpenProjectApi {
   }
   async updateWorkPackage(id: number, payload: Record<string, unknown>): Promise<WorkPackage> {
     this.updateCalls.push({ id, payload });
-    const current = await this.getWorkPackage(id);
+    const current = this.workPackages.get(id);
+    if (!current) throw new Error("not found");
+    if (payload.lockVersion !== current.lockVersion) throw new OpenProjectHttpError(409, "conflict", {});
     const links = (payload._links ?? {}) as Record<string, unknown>;
     const updated: WorkPackage = {
       ...current,
@@ -264,6 +268,19 @@ const requirement = (id: number, requirementId: string, state: string): WorkPack
 });
 
 describe("writing a handoff", () => {
+  it("pages 51 handoffs without losing the final record and searches within the project", async () => {
+    const service = new HandoffService(new FakeOpenProject(), fieldMap);
+    for (let index = 0; index < 51; index++) await service.save(saveInput({
+      id: `HO-${index}`, requestId: `create-${index}`, thread: `thread-${index}`, title: `交接 ${index}`
+    }), alice);
+    const first = await service.list({ project: "eva-project", pageSize: 50 }, alice);
+    expect(first.items).toHaveLength(50); expect(first.total).toBe(51); expect(first.nextCursor).toBe("2");
+    const second = await service.list({ project: "eva-project", pageSize: 50, cursor: first.nextCursor! }, alice);
+    expect(second.items).toHaveLength(1); expect(second.nextCursor).toBe(null);
+    expect(new Set([...first.items, ...second.items].map(item => item.id)).size).toBe(51);
+    const found = await service.list({ project: "eva-project", query: "thread-50" }, alice);
+    expect(found.items.map(item => item.id)).toEqual(["HO-50"]);
+  });
   it("stores it as a handoff awaiting pickup with counts taken from the list", async () => {
     const client = new FakeOpenProject();
     const service = new HandoffService(client, fieldMap);
@@ -336,7 +353,7 @@ describe("writing a handoff", () => {
   it("archives the predecessor it continues, even when that one was claimed", async () => {
     const service = new HandoffService(new FakeOpenProject(), fieldMap);
     const first = await service.save(saveInput(), alice);
-    await service.claim({
+    await service.claim({ expectedLockVersion: 0,
       project: "eva-project", reference: first.item.workPackageId, agent: "Codex",
       sessionId: "s1", label: "接手", scope: "范围", claimedAt: "2026-09-22T09:00:00+08:00"
     }, alice);
@@ -353,7 +370,7 @@ describe("writing a handoff", () => {
     const client = new FakeOpenProject();
     const service = new HandoffService(client, fieldMap);
     const first = await service.save(saveInput(), alice);
-    await service.updateState({
+    await service.updateState({ expectedLockVersion: 0,
       project: "eva-project", reference: first.item.workPackageId, state: "已作废",
       note: "作废", changedAt: "2026-09-22T09:00:00+08:00"
     }, alice);
@@ -418,7 +435,7 @@ describe("picking a handoff up", () => {
   it("claims atomically and moves the handoff to 已接手", async () => {
     const { service, reference } = await setup();
 
-    const result = await service.claim({ ...claim(), reference } as never, alice);
+    const result = await service.claim({ expectedLockVersion: 0, ...claim(), reference } as never, alice);
 
     expect(result.item.claimedSession).toBe("session-b");
     expect(result.item.handoffState).toBe("已接手");
@@ -426,17 +443,17 @@ describe("picking a handoff up", () => {
 
   it("refuses a second session and does not preempt the first", async () => {
     const { service, reference } = await setup();
-    await service.claim({ ...claim(), reference } as never, alice);
+    await service.claim({ expectedLockVersion: 0, ...claim(), reference } as never, alice);
 
-    await expect(service.claim({ ...claim({ sessionId: "session-c" }), reference } as never, alice))
+    await expect(service.claim({ expectedLockVersion: 1, ...claim({ sessionId: "session-c" }), reference } as never, alice))
       .rejects.toThrow(/already claimed by session session-b/);
   });
 
   it("replays for the same session instead of failing", async () => {
     const { service, reference } = await setup();
-    await service.claim({ ...claim(), reference } as never, alice);
+    await service.claim({ expectedLockVersion: 0, ...claim(), reference } as never, alice);
 
-    expect((await service.claim({ ...claim(), reference } as never, alice)).replayed).toBe(true);
+    expect((await service.claim({ expectedLockVersion: 0, ...claim(), reference } as never, alice)).replayed).toBe(true);
   });
 
   it("guards a named expected agent but lets an explicit override through", async () => {
@@ -445,10 +462,10 @@ describe("picking a handoff up", () => {
     const saved = await service.save(saveInput({ expectedAgent: "Claude" }), alice);
     const reference = saved.item.workPackageId;
 
-    await expect(service.claim({ ...claim(), reference } as never, alice))
+    await expect(service.claim({ expectedLockVersion: 0, ...claim(), reference } as never, alice))
       .rejects.toThrow(/expects agent Claude/);
 
-    const forced = await service.claim({ ...claim({ override: true }), reference } as never, alice);
+    const forced = await service.claim({ expectedLockVersion: 0, ...claim({ override: true }), reference } as never, alice);
     expect(forced.item.claimedAgent).toBe("Codex");
   });
 });
@@ -459,7 +476,7 @@ describe("a claim left behind by a session that is gone", () => {
     const service = new HandoffService(client, fieldMap);
     const saved = await service.save(saveInput(), alice);
     const reference = saved.item.workPackageId;
-    await service.claim({
+    await service.claim({ expectedLockVersion: 0,
       project: "eva-project", reference, agent: "Claude", sessionId: "dead-session",
       label: "接手", scope: "范围", claimedAt: "2026-09-21T23:00:00+08:00"
     }, alice);
@@ -473,14 +490,14 @@ describe("a claim left behind by a session that is gone", () => {
   it("is not released by another session by default", async () => {
     const { service, reference } = await setup();
 
-    await expect(service.release({ ...release(), reference } as never, alice))
+    await expect(service.release({ expectedLockVersion: 1, ...release(), reference } as never, alice))
       .rejects.toThrow(/claimed by session dead-session/);
   });
 
   it("is released by the owner with an explicit takeover, returning the thread to 待接手", async () => {
     const { service, reference } = await setup();
 
-    const result = await service.release({ ...release({ takeover: true }), reference } as never, alice);
+    const result = await service.release({ expectedLockVersion: 1, ...release({ takeover: true }), reference } as never, alice);
 
     expect(result.claimedSession).toBeNull();
     expect(result.handoffState).toBe("待接手");
@@ -489,7 +506,7 @@ describe("a claim left behind by a session that is gone", () => {
   it("is not released by someone who does not own it", async () => {
     const { service, reference } = await setup();
 
-    await expect(service.release({ ...release({ takeover: true }), reference } as never, bob))
+    await expect(service.release({ expectedLockVersion: 1, ...release({ takeover: true }), reference } as never, bob))
       .rejects.toThrow();
   });
 });
@@ -538,7 +555,7 @@ describe("todos and the requirement pool", () => {
   it("never writes to the requirement when a todo is ticked", async () => {
     const { client, service, reference } = await setup("- [ ] (T1) 做事 · 需求:MPR-REQ-1 · 状态:进行中");
 
-    await service.updateTodos({
+    await service.updateTodos({ expectedLockVersion: 0,
       project: "eva-project", reference,
       todos: "- [x] (T1) 做事 · 需求:MPR-REQ-1 · 状态:已完成",
       note: "做完了", changedAt: "2026-09-22T09:00:00+08:00", sessionId: "session-a"
@@ -550,7 +567,7 @@ describe("todos and the requirement pool", () => {
   it("recomputes counts from the list instead of trusting the caller", async () => {
     const { service, reference } = await setup("- [ ] (T1) 一 · 状态:进行中");
 
-    const result = await service.updateTodos({
+    const result = await service.updateTodos({ expectedLockVersion: 0,
       project: "eva-project", reference,
       todos: "- [x] (T1) 一\n- [x] (T2) 二\n- [ ] (T3) 三",
       note: "推进", changedAt: "2026-09-22T09:00:00+08:00", sessionId: "session-a"
@@ -563,7 +580,7 @@ describe("todos and the requirement pool", () => {
   it("leaves the other sections untouched when only todos change", async () => {
     const { service, reference } = await setup("- [ ] (T1) 一");
 
-    await service.updateTodos({
+    await service.updateTodos({ expectedLockVersion: 0,
       project: "eva-project", reference, todos: "- [x] (T1) 一",
       note: "完成", changedAt: "2026-09-22T09:00:00+08:00", sessionId: "session-a"
     }, alice);
@@ -639,7 +656,7 @@ describe("editing a handoff that already exists", () => {
     const service = new HandoffService(client, fieldMap);
     const { item } = await service.save(saveInput(), alice);
 
-    await service.updateSection({
+    await service.updateSection({ expectedLockVersion: 0,
       project: "eva-project",
       reference: item.id,
       section: "现状",
@@ -660,7 +677,7 @@ describe("editing a handoff that already exists", () => {
     const service = new HandoffService(new FakeOpenProject(), fieldMap);
     const { item } = await service.save(saveInput(), alice);
 
-    await expect(service.updateSection({
+    await expect(service.updateSection({ expectedLockVersion: 0,
       project: "eva-project",
       reference: item.id,
       section: "待办" as never,
@@ -693,5 +710,211 @@ describe("editing a handoff that already exists", () => {
 
     expect((await service.save(saveInput(), alice)).replayed).toBe(true);
     expect(client.createCalls).toHaveLength(1);
+  });
+});
+
+
+describe("web handoff pickup", () => {
+  const person: Principal = { ...bob, via: "网页" };
+  const input = (reference: number, version: number) => ({
+    project: "eva-project", reference, agent: "", sessionId: "web:bob", label: "Bob",
+    scope: "网页接手", claimedAt: "2026-11-04T07:00:00Z", expectedLockVersion: version
+  });
+  const setup = async (overrides: Partial<SaveHandoffInput> = {}) => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    const saved = await service.save(saveInput({ visibility: "公开", ...overrides }), alice);
+    return { client, service, saved };
+  };
+  it("registers a different project member as the human recipient and returns their time", async () => {
+    const { service, saved } = await setup();
+    const result = await service.claim(input(saved.item.workPackageId, saved.item.lockVersion), person);
+    expect(result.item).toMatchObject({ claimedSession: "web:bob", claimedAgent: null, claimLabel: "Bob",
+      claimedAt: "2026-11-04T07:00:00Z", handoffState: "已接手" });
+    await service.updateSection({ expectedLockVersion: result.item.lockVersion, project: "eva-project", reference: saved.item.workPackageId,
+      section: "现状", content: "已由接手人继续处理", note: "test", changedAt: "now", sessionId: "web:bob"
+    }, person);
+  });
+  it("makes a retry with the original version idempotent", async () => {
+    const { client, service, saved } = await setup();
+    const args = input(saved.item.workPackageId, saved.item.lockVersion);
+    await service.claim(args, person);
+    const result = await service.claim(args, person);
+    expect(result.replayed).toBe(true);
+    expect(client.updateCalls).toHaveLength(1);
+  });
+  it("allows only one of two concurrent recipients to acquire the handoff", async () => {
+    const { service, saved } = await setup();
+    const args = input(saved.item.workPackageId, saved.item.lockVersion);
+    const results = await Promise.allSettled([
+      service.claim(args, person),
+      service.claim({ expectedLockVersion: 0, ...args, sessionId: "web:alice", label: "Alice" }, { ...alice, via: "网页" })
+    ]);
+    expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter(r => r.status === "rejected")).toHaveLength(1);
+  });
+  it("refuses private records and archived handoffs", async () => {
+    const { service, saved } = await setup({ visibility: "私有" });
+    await expect(service.claim(input(saved.item.workPackageId, saved.item.lockVersion), person)).rejects.toThrow();
+    await service.updateState({ expectedLockVersion: 0, project: "eva-project", reference: saved.item.workPackageId,
+      state: "已归档", note: "test", changedAt: "now" }, alice);
+    await expect(service.claim({ expectedLockVersion: 0, ...input(saved.item.workPackageId, saved.item.lockVersion),
+      sessionId: "web:alice" }, { ...alice, via: "网页" })).rejects.toThrow("无法接手");
+  });
+  it("requires an explicit override for a named expected Agent", async () => {
+    const { service, saved } = await setup({ expectedAgent: "Claude" });
+    const args = input(saved.item.workPackageId, saved.item.lockVersion);
+    await expect(service.claim(args, person)).rejects.toThrow("expects agent");
+    expect((await service.claim({ ...args, override: true }, person)).item.claimedAgent).toBeNull();
+  });
+  it("lets the recipient release their own claim without owning the record", async () => {
+    const { service, saved } = await setup();
+    const claimed = await service.claim(input(saved.item.workPackageId, saved.item.lockVersion), person);
+    const released = await service.release({project:"eva-project", reference:saved.item.workPackageId,
+      sessionId:"web:bob", reason:"暂时无法继续", releasedAt:"now", expectedLockVersion:claimed.item.lockVersion},person);
+    expect(released).toMatchObject({ handoffState:"待接手", claimedSession:null, claimLabel:null, claimedAt:null });
+  });
+  it("prevents a bare state change from leaving state and pickup metadata inconsistent", async () => {
+    const { service, saved } = await setup();
+    await expect(service.updateState({ expectedLockVersion: 0,project:"eva-project",reference:saved.item.workPackageId,
+      state:"已接手",note:"test",changedAt:"now"},alice)).rejects.toThrow("登记接手人");
+    const claimed = await service.claim(input(saved.item.workPackageId, saved.item.lockVersion), person);
+    await expect(service.updateState({project:"eva-project",reference:saved.item.workPackageId,
+      state:"待接手",note:"test",changedAt:"now",sessionId:"web:bob",expectedLockVersion:claimed.item.lockVersion},person))
+      .rejects.toThrow("先释放接手");
+  });
+});
+
+
+describe("handoff retry and version safeguards", () => {
+  it.each([{}, { 背景: "context" }, { 主线: "  ", 待办: "\n" }])(
+    "replays a saved handoff with empty sections without creating a duplicate (%j)", async sections => {
+      const client = new FakeOpenProject();
+      const service = new HandoffService(client, fieldMap);
+      const input = saveInput({ sections });
+      const first = await service.save(input, alice);
+      const retry = await service.save(input, alice);
+      expect(retry).toMatchObject({ replayed: true, item: { workPackageId: first.item.workPackageId } });
+      expect(client.createCalls).toHaveLength(1);
+      await expect(service.save({ ...input, sections: { ...sections, 背景: "different" } }, alice))
+        .rejects.toThrow("already exists");
+    }
+  );
+  it("rejects missing versions for all handoff edits without changing the saved record", async () => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    const saved = await service.save(saveInput(), alice);
+    const common = { project: "eva-project", reference: saved.item.workPackageId };
+    const writes = [
+      () => service.claim({ ...common, agent: "Codex", sessionId: "test", label: "test", scope: "test", claimedAt: "now" }, alice),
+      () => service.release({ ...common, sessionId: "test", reason: "test", releasedAt: "now" }, alice),
+      () => service.updateTodos({ ...common, todos: "", note: "test", changedAt: "now" }, alice),
+      () => service.updateSection({ ...common, section: "背景", content: "new", note: "test", changedAt: "now" }, alice),
+      () => service.updateState({ ...common, state: "已归档", note: "test", changedAt: "now" }, alice)
+    ];
+    for (const write of writes) await expect(write()).rejects.toThrow("记录版本");
+    expect(client.updateCalls).toEqual([]);
+  });
+  it("preserves the current handoff when a later edit submits a stale version", async () => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    const saved = await service.save(saveInput(), alice);
+    const edit = { project: "eva-project", reference: saved.item.workPackageId, section: "背景" as const,
+      content: "current", note: "test", changedAt: "now", expectedLockVersion: saved.item.lockVersion };
+    await service.updateSection(edit, alice);
+    await expect(service.updateSection({ ...edit, content: "stale" }, alice)).rejects.toThrow("Stale lockVersion");
+    expect(client.updateCalls).toHaveLength(1);
+    expect(client.workPackages.get(saved.item.workPackageId)?.description?.raw).toContain("current");
+  });
+});
+
+
+it("requires a version even when a handoff claim would otherwise be a same-session replay", async () => {
+  const client = new FakeOpenProject();
+  const service = new HandoffService(client, fieldMap);
+  const saved = await service.save(saveInput(), alice);
+  const input = { project: "eva-project", reference: saved.item.workPackageId, agent: "Codex",
+    sessionId: "test", label: "test", scope: "test", claimedAt: "now" };
+  await service.claim({ ...input, expectedLockVersion: saved.item.lockVersion }, alice);
+  await expect(service.claim(input, alice)).rejects.toThrow("记录版本");
+  expect((await service.claim({ ...input, expectedLockVersion: saved.item.lockVersion }, alice)).replayed).toBe(true);
+  expect(client.updateCalls).toHaveLength(1);
+});
+
+
+describe("handoff ownership, thread concurrency and recovery", () => {
+  it.each(["supersede", "previous"])("preflights %s ownership before creating or archiving anything", async path => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    const first = await service.save(saveInput({ visibility: "公开" }), alice);
+    await expect(service.save(saveInput({ id: "BOB", visibility: "公开",
+      ...(path === "supersede" ? { supersede: true } : { supersede: true, previous: first.item.id! }) }), bob)).rejects.toThrow();
+    expect(client.createCalls).toHaveLength(1);
+    expect(client.updateCalls).toEqual([]);
+    expect((await service.get({ project: "eva-project", reference: first.item.workPackageId }, alice)).handoff).toMatchObject({ handoffState: "待接手" });
+  });
+  it("requires edit permission before superseding an owned handoff", async () => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    await service.save(saveInput(), alice);
+    client.canEditWorkPackages = async () => false;
+    await expect(service.save(saveInput({ id: "NEXT", supersede: true }), alice)).rejects.toThrow("处理任务的权限");
+    expect(client.createCalls).toHaveLength(1);
+    expect(client.updateCalls).toEqual([]);
+  });
+  it("serializes different ids on a thread across service instances", async () => {
+    const client = new FakeOpenProject();
+    const results = await Promise.allSettled([
+      new HandoffService(client, fieldMap).save(saveInput({ id: "A" }), alice),
+      new HandoffService(client, fieldMap).save(saveInput({ id: "B" }), alice)
+    ]);
+    expect(results.map(item => item.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(client.createCalls).toHaveLength(1);
+  });
+  it("allows unrelated threads concurrently and unlocks a thread after a rejected request", async () => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    await Promise.all([service.save(saveInput({ id: "A", thread: "a" }), alice), service.save(saveInput({ id: "B", thread: "b" }), alice)]);
+    await expect(service.save(saveInput({ id: "C", thread: "a" }), alice)).rejects.toThrow();
+    expect((await service.save(saveInput({ id: "C", thread: "a", supersede: true }), alice)).item.handoffState).toBe("待接手");
+    expect((await service.list({ project: "eva-project", state: "待接手" }, alice)).items).toHaveLength(2);
+  });
+  it("leaves a draft on archive failure and resumes it with no duplicate creation", async () => {
+    const client = new FakeOpenProject();
+    const service = new HandoffService(client, fieldMap);
+    const old = await service.save(saveInput(), alice);
+    const update = client.updateWorkPackage.bind(client);
+    client.updateWorkPackage = async (id, payload) => {
+      if (id === old.item.workPackageId) throw new OpenProjectHttpError(409, "archive conflict", {});
+      return update(id, payload);
+    };
+    const next = saveInput({ id: "NEXT", supersede: true });
+    await expect(service.save(next, alice)).rejects.toThrow("已保存为草稿");
+    expect((await service.list({ project: "eva-project", state: "待接手" }, alice)).items).toHaveLength(1);
+    expect((await service.list({ project: "eva-project", state: "草稿" }, alice)).items).toHaveLength(1);
+    client.updateWorkPackage = update;
+    const resumed = await new HandoffService(client, fieldMap).save(next, alice);
+    expect(resumed.item.handoffState).toBe("待接手");
+    expect(client.createCalls).toHaveLength(2);
+    expect((await service.list({ project: "eva-project", state: "待接手" }, alice)).items.map(item => item.id)).toEqual(["NEXT"]);
+  });
+  it("binds handoff claims to their real user, including release and successor archival", async () => {
+    const client = new FakeOpenProject();
+    client.users.set("mallory", 14);
+    const mallory: Principal = { userId: "mallory", displayName: "Mallory", role: "user" };
+    const service = new HandoffService(client, fieldMap);
+    const first = await service.save(saveInput({ visibility: "公开" }), alice);
+    const claim = { project: "eva-project", reference: first.item.workPackageId, agent: "Codex", sessionId: "bob-session",
+      label: "Bob", scope: "work", claimedAt: "now", expectedLockVersion: first.item.lockVersion };
+    const claimed = await service.claim(claim, bob);
+    const common = { project: "eva-project", reference: first.item.workPackageId, sessionId: "bob-session", expectedLockVersion: claimed.item.lockVersion };
+    await expect(service.updateSection({ ...common, section: "背景", content: "stolen", note: "test", changedAt: "now" }, mallory)).rejects.toThrow();
+    await expect(service.release({ ...common, reason: "test", releasedAt: "now" }, mallory)).rejects.toThrow();
+    await expect(service.claim({ ...claim, expectedLockVersion: claimed.item.lockVersion }, mallory)).rejects.toThrow("already claimed");
+    await expect(service.save(saveInput({ id: "STOLEN", previous: first.item.id!, sourceSessionId: "bob-session" }), mallory)).rejects.toThrow();
+    expect(client.updateCalls).toHaveLength(1);
+    const next = await service.save(saveInput({ id: "BOB-NEXT", previous: first.item.id!, sourceSessionId: "bob-session" }), bob);
+    expect(next.item.handoffState).toBe("待接手");
+    expect((await service.get({ project: "eva-project", reference: first.item.workPackageId }, alice)).handoff).toMatchObject({ handoffState: "已归档" });
   });
 });

@@ -184,6 +184,8 @@ export type HandoffSummary = {
   todoDone: number | null;
   claimedAgent: string | null;
   claimedSession: string | null;
+  claimLabel?: string | null;
+  claimedAt?: string | null;
   sourceSessionId: string | null;
   visibility: "公开" | "私有" | null;
   ownerUserId: string | null;
