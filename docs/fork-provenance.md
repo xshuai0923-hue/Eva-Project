@@ -5,9 +5,11 @@
 - 源权威默认分支：`main`。
 - 分叉提交：`05f09064c10946879d9841923332b14788085d87`。
 - 官方 Compose submodule：`8c349d3b2a4e8ae5f5c253b5392993777148bc2f`。
-- 独立仓库：`https://github.com/briantant3/Eva-Project`，同一所有者，保持私有。
+- 当前独立仓库：[xshuai0923-hue/Eva-Project](https://github.com/xshuai0923-hue/Eva-Project)，分支 `main`。
 - 方式：保留源提交历史的新独立 GitHub 仓库，不是 GitHub fork network 中的原生 fork。本地从远端 clone，未读取或复制源工作区的未提交修改。
-- 本地 `origin` 指向 Eva-Project；`source` 只作来源引用，push URL 已禁用。只推送 Eva-Project 的 main，不镜像推送其他引用。
+- 当前本地 `origin` 指向 `https://github.com/xshuai0923-hue/Eva-Project.git`。分叉时的 `source` 远端仅作历史来源记录，不代表当前远端配置。
+
+2026-11-04 核对：当前本地仓库以 `37e17a0`（Initial commit）初始化，路径为 `E:\Dev\Projects\eva-project-20261009-r1\Eva-Project`；下述分叉和源提交历史描述属于原始来源记录，不表示当前仓库包含这些历史提交。
 
 ## 已完成的隔离
 

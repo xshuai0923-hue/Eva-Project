@@ -4,6 +4,8 @@
 
 当前状态：开发机保留本地开发实例。用户说明另有通过独立发布包运行的服务器实例，其当前地址和版本尚未核实；新服务器将由另一个部署会话接手。本文 2026-09-30 的家中联调地址属于历史记录，不能当作本次部署目标。旧 macOS 生产安装、launchd、远程发布、用户管理和拉取原系统备份的脚本已移除；源版本保留在 Git 历史中。
 
+当前仓库：[xshuai0923-hue/Eva-Project](https://github.com/xshuai0923-hue/Eva-Project)，分支 `main`；本地工作区为 `E:\Dev\Projects\eva-project-20261009-r1\Eva-Project`。
+
 ## 独立环境
 
 - Compose 项目名：`eva-project`；本地开发：`eva-project-local`。
@@ -41,7 +43,7 @@ docker compose --project-name eva-project \
 - 登录名 `admin`，密码保存在 `/Users/Shared/Eva-Project-local/runtime/admin-password`，可通过 `pbcopy < /Users/Shared/Eva-Project-local/runtime/admin-password` 复制，不输出到终端或文档。
 - Colima profile `evaproject-local`，Compose 项目 `eva-project-local`，数据与凭据均在 `/Users/Shared/Eva-Project-local`。
 - 本地 MCP 初始身份 `local-admin` 显式关联 OpenProject 登录名 `admin`；这解决了首次登录后的会话接口 403。
-- 仓库远端为 `briantant3/Eva-Project`；当前工作区路径仍为 `/Users/brian/Documents/Brian AI/M-Works`，避免移动正在使用的工作区。
+- 当前仓库远端为 `xshuai0923-hue/Eva-Project`；本节历史 macOS 工作区路径为 `/Users/brian/Documents/Brian AI/M-Works`，不是当前 Windows 工作区。
 - 启动、状态、日志、停止：`deploy/bin/evaproject-local up|status|logs|down`。Colima 启动不改变全局 Docker context。应用容器自动重启；本次未安装宿主机开机自启服务。
 - 验证：Web/MCP 健康检查 200；登录态页面、交接会话/列表接口、原生工作包列表、菜单渲染检查通过；MCP 初始化、30 个工具枚举、项目/需求列表读取通过，匿名请求 401。
 - 当前仅有新建 `eva-project` 项目，需求列表为空；未导入源系统的数据。数据库分配的数字 ID 恰为 3，不代表绑定到源系统。
