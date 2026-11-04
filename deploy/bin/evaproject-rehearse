@@ -1,0 +1,240 @@
+#!/bin/zsh
+# 在本机测试实例上演练一次正式环境升级。
+#
+# 流程：把生产数据库转储恢复到本地 → 取升级前快照 → 跑引导 → 取升级后快照 → 对账。
+# 对账不通过就不要碰生产。
+#
+# 只操作 evaproject-local 这一套（自己的 colima profile、compose 项目、数据根目录）。
+# 仅对本地 Eva-Project 实例执行。
+#
+# 用法：
+#   evaproject-rehearse snapshot [输出.json]              对当前本地实例取快照（只读）
+#   evaproject-rehearse restore <转储> [assets.tar.gz]    把转储恢复到本地（销毁本地现有数据）
+#   evaproject-rehearse run <转储> [assets.tar.gz]        完整演练
+#
+# restore 与 run 会销毁本地实例现有数据，需显式确认：
+#   EVAPROJECT_REHEARSE_CONFIRM=restore evaproject-rehearse run 生产转储.dump
+set -eu
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# 在函数里 $0 是函数名，不是脚本路径。提示语要能照抄，先在顶层存下来。
+script_path="${0:A}"
+project_root="${EVAPROJECT_LOCAL_SOURCE:-${0:A:h:h:h}}"
+local_root="${EVAPROJECT_LOCAL_ROOT:-/Users/Shared/Eva-Project-local}"
+runtime_root="$local_root/runtime"
+env_file="$runtime_root/.env"
+compose_project="eva-project-local"
+web_port="${EVAPROJECT_LOCAL_WEB_PORT:-28080}"
+
+export DOCKER_CONTEXT="colima-evaproject-local"
+
+die() { print -u2 -- "$1"; exit 1; }
+say() { print -r -- "▸ $1"; }
+
+compose() {
+  docker-compose \
+    --project-name "$compose_project" \
+    --env-file "$env_file" \
+    -f "$project_root/vendor/openproject-docker-compose/docker-compose.yml" \
+    -f "$project_root/deploy/docker-compose.override.yml" \
+    "$@"
+}
+
+# 目标必须是本地实例。任一条件不符就停，宁可不跑也不要跑错地方。
+guard_local() {
+  [ -f "$env_file" ] || die "本地实例没起来：找不到 $env_file。先跑 deploy/bin/evaproject-local up"
+  case "$local_root" in
+    /Users/Shared/Eva-Project-local*) ;;
+    *) die "数据根目录不是本地实例：$local_root" ;;
+  esac
+  [ "$compose_project" = "eva-project-local" ] || die "compose 项目不是本地实例：$compose_project"
+  grep -q '192\.168\.80\.4' "$env_file" && die "本地 .env 里出现了正式环境地址，拒绝执行"
+  return 0
+}
+
+confirm_destructive() {
+  [ "${EVAPROJECT_REHEARSE_CONFIRM:-}" = "restore" ] || die \
+"这会删除本地实例的全部数据并替换成转储内容。确认请执行：
+  EVAPROJECT_REHEARSE_CONFIRM=restore \"$script_path\" $*"
+}
+
+wait_for_web() {
+  local attempt
+  for attempt in {1..150}; do
+    curl -fsS "http://127.0.0.1:$web_port/health_checks/default" >/dev/null 2>&1 && return 0
+    sleep 5
+  done
+  compose ps
+  die "OpenProject 在超时前没有就绪"
+}
+
+take_snapshot() {
+  local out="$1"
+  compose exec -T web bundle exec rails runner - \
+    < "$project_root/deploy/dev/state-snapshot.rb" > "$out"
+  # Rails runner 偶尔会把告警混进 stdout，那样 JSON 就废了。当场验，别等对账时才发现。
+  python3 -c "import json,sys; json.load(open(sys.argv[1],encoding='utf-8'))" "$out" \
+    || die "快照不是合法 JSON：$out"
+  say "快照已存：$out"
+}
+
+run_bootstrap() {
+  local out="$1"
+  compose exec -T -e EVAPROJECT_BOOTSTRAP_OUTPUT_DIR=/evaproject-runtime \
+    web bundle exec rails runner - \
+    < "$project_root/deploy/bootstrap/openproject_bootstrap.rb" > "$out"
+  print -r -- "引导输出：$(<"$out")"
+}
+
+# 恢复转储后，runtime 里的 API 令牌对不上新库了。引导会重签一个，这里把它写回 .env
+# 并重建 mcp——否则演练出来的实例点不开，只能看数据对不对，看不了人能不能用。
+resync_api_token() {
+  local api_token env_tmp
+  api_token="$(<"$runtime_root/openproject-api-token")"
+  env_tmp="$runtime_root/.env.tmp"
+  while IFS= read -r env_line; do
+    case "$env_line" in
+      OPENPROJECT_API_TOKEN=*) print -r -- "OPENPROJECT_API_TOKEN=$api_token" ;;
+      *) print -r -- "$env_line" ;;
+    esac
+  done < "$env_file" > "$env_tmp"
+  chmod 600 "$env_tmp"
+  mv "$env_tmp" "$env_file"
+  unset api_token
+  compose up -d --no-deps --force-recreate mcp
+}
+
+do_restore() {
+  local dump="$1" assets="${2:-}"
+  [ -f "$dump" ] || die "找不到转储文件：$dump"
+  [ -n "$assets" ] && { [ -f "$assets" ] || die "找不到附件包：$assets"; }
+
+  say "停应用容器，断开数据库连接"
+  compose stop web worker cron >/dev/null
+
+  say "重建数据库并恢复转储（$(du -h "$dump" | cut -f1)）"
+  compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -c \
+    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='openproject' AND pid<>pg_backend_pid();" >/dev/null
+  compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -c 'DROP DATABASE IF EXISTS openproject;'
+  compose exec -T db psql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -c 'CREATE DATABASE openproject OWNER postgres;'
+  # --no-owner/--no-privileges：生产的角色名在本地不存在，否则每条 ALTER OWNER 都报错。
+  compose exec -T db pg_restore -U postgres -d openproject --no-owner --no-privileges < "$dump"
+
+  if [ -n "$assets" ]; then
+    say "恢复附件"
+    tar -xzf "$assets" -C "$local_root/data/openproject"
+  else
+    print -u2 -- "⚠ 没提供附件包：附件的数据库记录在，文件不在。数据对账不受影响，但点开附件会 404。"
+  fi
+
+  say "启动应用容器"
+  compose up -d web worker cron >/dev/null
+  wait_for_web
+
+  # 转储可能来自更早的镜像版本。同版本时这是空操作，跨版本时它正是升级的一部分。
+  # 不要接管道：管道的退出码是 tail 的，迁移失败会被静默吞掉，演练照样"通过"。
+  say "执行待定迁移"
+  local migrate_out
+  if ! migrate_out="$(compose exec -T web bundle exec rails db:migrate 2>&1)"; then
+    print -u2 -- "$migrate_out"
+    die "数据库迁移失败：转储与当前镜像版本不兼容，演练到此为止"
+  fi
+  if [ -n "$migrate_out" ]; then
+    print -r -- "$migrate_out" | tail -5
+  else
+    say "无待定迁移（转储与当前镜像同版本）"
+  fi
+}
+
+cmd_snapshot() {
+  guard_local
+  local out="${1:-$PWD/snapshot-$(date +%Y%m%d-%H%M%S).json}"
+  take_snapshot "$out"
+}
+
+cmd_restore() {
+  guard_local
+  confirm_destructive restore "$@"
+  do_restore "$@"
+  say "恢复完成。本地实例现在装着那份转储的数据。"
+}
+
+cmd_run() {
+  guard_local
+  confirm_destructive run "$@"
+  local stamp work
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  work="${EVAPROJECT_REHEARSE_OUT:-$local_root/rehearsal/$stamp}"
+  mkdir -p "$work"
+  say "演练工作目录：$work"
+
+  do_restore "$@"
+
+  say "取升级前快照"
+  take_snapshot "$work/before.json"
+
+  say "跑引导（计时）"
+  local started elapsed
+  started="$(date +%s)"
+  run_bootstrap "$work/bootstrap.json"
+  elapsed="$(( $(date +%s) - started ))"
+  say "引导耗时 ${elapsed}s"
+  print -r -- "$elapsed" > "$work/bootstrap-seconds"
+
+  # first_run 为 true 意味着它把这台机器当成了全新安装，会清演示数据、盖欢迎页。
+  # 生产上出现这个就必须立刻回滚，所以演练里它同样是硬失败。
+  if grep -q '"first_run":true' "$work/bootstrap.json"; then
+    print -u2 -- "✗ 引导报告 first_run=true：它没认出这是既有实例。生产上遇到这个必须立刻回滚。"
+    exit 1
+  fi
+  say "first_run=false ✓"
+
+  resync_api_token
+
+  say "取升级后快照"
+  take_snapshot "$work/after.json"
+
+  print -r -- ""
+  print -r -- "================ 对账 ================"
+  set +e
+  python3 "$project_root/deploy/dev/state-diff.py" "$work/before.json" "$work/after.json" \
+    | tee "$work/diff.txt"
+  local verdict="${pipestatus[1]}"
+  set -e
+  print -r -- "======================================"
+  if [ "$verdict" -ne 0 ]; then
+    print -u2 -- ""
+    print -u2 -- "✗ 数据对账不通过。不要升级生产。产物：$work"
+    exit 1
+  fi
+
+  # 对账只证明数据没坏，证明不了功能能用——这正是以往反复看走眼的地方：
+  # 配置确实写进去了，人点进去却是空白页或 500。所以演练必须自己点一遍。
+  print -r -- ""
+  print -r -- "=============== 功能冒烟 ==============="
+  set +e
+  "$project_root/deploy/dev/smoke-handoff.sh" "${EVAPROJECT_REHEARSE_PROJECT:-eva-project}" \
+    | tee "$work/smoke.txt"
+  local smoke="${pipestatus[1]}"
+  set -e
+  print -r -- "======================================="
+  if [ "$smoke" -ne 0 ]; then
+    print -u2 -- ""
+    print -u2 -- "✗ 数据没坏，但功能点不开。不要升级生产。产物：$work"
+    exit 1
+  fi
+
+  print -r -- ""
+  say "演练通过：既有数据一字未动，交接功能点得开。"
+  say "引导耗时 ${elapsed}s，可据此估计生产的停机窗口。"
+  say "产物：$work"
+  say "想亲眼看看：http://localhost:$web_port/handoff （免密会话用 deploy/dev/autologin.rb）"
+}
+
+case "${1:-}" in
+  snapshot) shift; cmd_snapshot "$@" ;;
+  restore)  shift; cmd_restore "$@" ;;
+  run)      shift; cmd_run "$@" ;;
+  *) die "用法：evaproject-rehearse {snapshot [输出.json] | restore <转储> [assets.tar.gz] | run <转储> [assets.tar.gz]}" ;;
+esac

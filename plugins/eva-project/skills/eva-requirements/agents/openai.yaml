@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eva 需求"
+  short_description: "Manage Eva requirements and delivery evidence"
+  default_prompt: "用 $eva-requirements 查看当前项目的需求。"

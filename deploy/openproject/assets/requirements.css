@@ -1,0 +1,691 @@
+/* Requirement pool module. Runs inside OpenProject's layout, so there is no header or
+   navigation here, and every colour comes from the variables the theme redefines (#203),
+   so the module follows the instance rather than carrying a second palette. States and
+   types take the palette's own hues, not Primer's success, attention, danger and done
+   colours, which the theme leaves as they are; 进行中 is drawn as the theme draws what is
+   current, terracotta being for buttons, links and focus (Brian 2026-09-24, #246). */
+
+/* With the project navigation collapsed, OpenProject leaves its expand arrow floating
+   over the very top-left of the content area — right where a module's first heading
+   sits. Clear it rather than letting the two overlap. */
+.mp-requirements { padding: 12px 16px; }
+.hidden-navigation .mp-requirements { padding-left: 44px; }
+
+.mp-requirements {
+  --mp-border: var(--borderColor-default, #d1d9e0);
+  --mp-muted: var(--fgColor-muted, #59636e);
+  --mp-accent: var(--fgColor-accent, #0969da);
+  --mp-accent-soft: var(--bgColor-accent-muted, #ddf4ff);
+  --mp-surface: var(--bgColor-default, #ffffff);
+  --mp-inset: var(--bgColor-inset, #f6f8fa);
+  --mp-wash: var(--bgColor-neutral-muted, #eff1f3);
+  /* Each falls back to what it was, for the high-contrast themes theme.css leaves alone. */
+  --mp-warn: var(--mp-hue-amber, var(--fgColor-attention, #9a6700));
+  --mp-warn-soft: color-mix(in srgb, var(--mp-warn) 12%, transparent);
+  --mp-ok: var(--mp-hue-green, var(--fgColor-success, #1a7f37));
+  --mp-ok-soft: color-mix(in srgb, var(--mp-ok) 12%, transparent);
+  --mp-bad: var(--mp-hue-red, var(--fgColor-danger, #d1242f));
+  --mp-done: var(--mp-hue-purple, var(--fgColor-done, #8250df));
+  --mp-current-fg: var(--mp-selected-fg, var(--mp-accent));
+  --mp-current-bg: var(--mp-selected-bg, var(--mp-accent-soft));
+  --mp-current-border: var(--mp-selected-border, var(--mp-accent));
+  --mp-radius: var(--borderRadius-medium, 6px);
+}
+
+.mp-requirements .mp-notice {
+  padding: 8px 12px; margin-bottom: 12px; border-radius: var(--mp-radius);
+  background: var(--mp-wash); color: var(--fgColor-default, #1f2328); border: 1px solid var(--mp-border);
+}
+.mp-requirements .mp-notice.mp-is-error {
+  background: transparent; color: var(--mp-bad);
+  border-color: color-mix(in srgb, var(--mp-bad) 45%, var(--mp-border));
+}
+
+/* Project list ----------------------------------------------------------------- */
+
+/* Titles are set in the theme's serif, regular weight, as code.claude.com sets its own. */
+.mp-requirements .mp-panel-title {
+  font-family: var(--mp-font-display, serif); font-size: 20px; font-weight: 400; letter-spacing: -0.01em; margin: 0 0 12px;
+}
+.mp-requirements .mp-project-list {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px;
+}
+/* Every button here says its own colour: Safari on iOS draws a button's text in the system
+   blue unless told otherwise, which turned the project names, and the titles under 关系,
+   into what looked like links. */
+.mp-requirements .mp-project-card {
+  display: flex; flex-direction: column; gap: 4px; text-align: left; cursor: pointer; color: inherit;
+  padding: 14px 16px; background: var(--mp-surface);
+  border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-project-card:hover { border-color: var(--mp-accent); }
+.mp-requirements .mp-project-name { font-weight: 600; }
+.mp-requirements .mp-project-id {
+  font-size: 13px; color: var(--mp-muted);
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+/* Header and filters ----------------------------------------------------------- */
+
+.mp-requirements .mp-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.mp-requirements .mp-header-title {
+  font-family: var(--mp-font-display, serif); font-size: 20px; font-weight: 400; letter-spacing: -0.01em;
+}
+.mp-requirements .mp-count { color: var(--mp-muted); font-size: 13px; }
+
+
+
+
+
+
+
+/* Table ------------------------------------------------------------------------ */
+
+.mp-requirements .mp-layout { display: flex; gap: 16px; align-items: flex-start; }
+.mp-requirements .mp-main { flex: 1; min-width: 0; overflow-x: auto; }
+
+.mp-requirements .mp-table { width: 100%; border-collapse: collapse; font-size: 14px; table-layout: fixed; }
+.mp-requirements .mp-table th {
+  text-align: left; font-size: 13px; color: var(--mp-muted); font-weight: 600;
+  padding: 6px 8px; border-bottom: 1px solid var(--mp-border); white-space: nowrap;
+}
+.mp-requirements .mp-row { cursor: pointer; border-bottom: 1px solid var(--mp-border); }
+.mp-requirements .mp-row:hover { background: var(--mp-inset); }
+/* Selected is marked in the theme's card and ink, not the button's terracotta (#203). */
+.mp-requirements .mp-row.mp-is-active { background: var(--mp-selected-bg, var(--mp-accent-soft)); }
+.mp-requirements .mp-table td { padding: 7px 8px; vertical-align: top; }
+.mp-requirements .mp-col-id {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 13px; white-space: nowrap;
+}
+/* One line, cut with an ellipsis when the column is narrowed; the whole id is in the
+   detail, and the column can be dragged wider. */
+.mp-requirements td.mp-col-reqid {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; color: var(--mp-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.mp-requirements .mp-row-title { word-break: break-word; }
+.mp-requirements .mp-row-parent { color: var(--mp-muted); font-size: 13px; }
+.mp-requirements .mp-row-branch { color: var(--mp-border); margin-right: 5px; }
+.mp-requirements tr.mp-is-child td { background: linear-gradient(to right, var(--mp-inset) 0 3px, transparent 3px); }
+
+/* Detail ----------------------------------------------------------------------- */
+
+.mp-requirements .mp-detail {
+  flex: 0 0 300px; padding: 14px 16px;
+  background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-detail-title {
+  font-family: var(--mp-font-display, serif); font-size: 17px; font-weight: 400; letter-spacing: -0.01em; margin: 0 0 3px;
+}
+.mp-requirements .mp-detail-id {
+  font-size: 13px; color: var(--mp-muted); word-break: break-all;
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+.mp-requirements .mp-facts {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 14px 0; font-size: 13px;
+}
+.mp-requirements .mp-fact-label { color: var(--mp-muted); white-space: nowrap; }
+.mp-requirements .mp-fact-value { word-break: break-word; }
+
+.mp-requirements .mp-empty { color: var(--mp-muted); margin: 0; padding: 16px 0; }
+
+/* Loading (#209): a ring in the accent turning beside a word — in the list's place while a
+   page or a filter is fetched, and in the side panel while a detail or its history is. */
+.mp-requirements .mp-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 40px 0; color: var(--mp-muted); font-size: 13px;
+}
+.mp-requirements .mp-detail .mp-loading { padding: 20px 0; }
+.mp-requirements .mp-loading-ring {
+  width: 22px; height: 22px; flex: none; box-sizing: border-box; border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--mp-accent) 22%, transparent);
+  border-top-color: var(--mp-accent);
+  animation: mp-loading-turn .8s linear infinite;
+}
+@keyframes mp-loading-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mp-requirements .mp-loading-ring { animation: none; }
+}
+
+/* The theme's secondary button (#203): cream, ink and a hairline in light; #252320 in dark. */
+.mp-requirements .mp-action {
+  display: inline-block; padding: 4px 10px; cursor: pointer; text-decoration: none;
+  color: var(--mp-button-fg, var(--mp-muted)); background: var(--mp-button-bg, var(--mp-surface));
+  border: 1px solid var(--mp-button-border, var(--mp-border)); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-action:hover {
+  background: var(--mp-button-hover, var(--mp-surface));
+  border-color: var(--mp-button-border, var(--mp-accent)); color: var(--mp-button-fg, var(--mp-accent));
+}
+
+@media (max-width: 900px) {
+  .mp-requirements .mp-layout { flex-direction: column; }
+  .mp-requirements .mp-detail { flex: 1 1 auto; width: 100%; }
+}
+
+/* Detail --------------------------------------------------------------------- */
+
+.mp-requirements .mp-detail { flex: 0 0 clamp(360px, 40%, 640px); }
+.mp-requirements .mp-detail-section { border-top: 1px solid var(--mp-border); margin-top: 14px; padding-top: 10px; }
+.mp-requirements .mp-detail-heading { font-size: 13px; margin: 0 0 6px; }
+.mp-requirements .mp-detail-prose { font-size: 14px; }
+
+.mp-requirements .mp-ready {
+  display: inline-block; margin-top: 12px; padding: 2px 10px;
+  border: 1px solid currentColor; border-radius: 999px; font-size: 13px;
+}
+.mp-requirements .mp-ready.mp-is-ready { color: var(--mp-ok); background: var(--mp-ok-soft); }
+.mp-requirements .mp-ready.mp-is-blocked { color: var(--mp-warn); background: var(--mp-warn-soft); }
+.mp-requirements .mp-ready.mp-is-done { color: var(--mp-muted); }
+
+.mp-requirements .mp-ref-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mp-requirements .mp-ref {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; width: 100%;
+  text-align: left; cursor: pointer; padding: 5px 8px; font: inherit; font-size: 13px; color: inherit;
+  background: var(--mp-inset); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-ref:hover { border-color: var(--mp-accent); }
+.mp-requirements .mp-ref-id {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); color: var(--mp-muted);
+  overflow-wrap: anywhere;
+}
+/* The title takes the rest of the line but never less than 12em: beside a long id it
+   moves to a line of its own, where a zero basis squeezed it to a character a line in
+   Safari (#282). */
+.mp-requirements .mp-ref-title { flex: 1 1 12em; min-width: 0; word-break: break-word; }
+.mp-requirements .mp-ref-state { color: var(--mp-muted); }
+.mp-requirements .mp-dep-label { font-size: 13px; color: var(--mp-muted); margin: 8px 0 4px; }
+
+/* Header filtering ------------------------------------------------------------ */
+
+.mp-requirements .mp-table th { position: relative; padding: 0; }
+.mp-requirements .mp-th {
+  display: flex; align-items: center; gap: 5px; width: 100%;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--mp-muted);
+  text-align: left; cursor: pointer; padding: 6px 8px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--mp-border);
+}
+.mp-requirements .mp-th:hover { color: var(--mp-accent); background: var(--mp-inset); }
+/* A filtered column is marked as the theme marks what is selected, not in terracotta (#203). */
+.mp-requirements .mp-th.mp-is-filtered { color: var(--mp-current-fg); }
+.mp-requirements .mp-th-caret { font-size: 10px; opacity: .8; }
+
+/* Fixed, not absolute: .mp-main scrolls horizontally, which makes the browser clip it
+   vertically too, so an absolutely-positioned popup is cut off whenever the list is
+   shorter than the popup. Its coordinates are set from the header button in JS. */
+.mp-requirements .mp-filter-menu {
+  position: fixed; z-index: 20; min-width: 180px; max-height: 300px;
+  overflow-y: auto; padding: 6px; font-weight: 400;
+  background: var(--mp-surface); border: 1px solid var(--mp-border);
+  border-radius: var(--mp-radius); box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+.mp-requirements .mp-filter-note { font-size: 13px; color: var(--mp-muted); padding: 2px 6px 6px; }
+.mp-requirements .mp-filter-clear {
+  display: block; width: 100%; text-align: left; font: inherit; font-size: 13px;
+  color: var(--mp-muted); cursor: pointer; padding: 4px 6px; margin-bottom: 4px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--mp-border);
+}
+.mp-requirements .mp-filter-clear:hover { color: var(--mp-accent); }
+.mp-requirements .mp-filter-option {
+  display: flex; align-items: center; gap: 7px; font-size: 13px;
+  padding: 4px 6px; cursor: pointer; border-radius: 4px; white-space: nowrap;
+}
+.mp-requirements .mp-filter-option:hover { background: var(--mp-inset); }
+
+.mp-requirements .mp-row-toggle {
+  display: inline-block; width: 16px; font: inherit; font-size: 10px; line-height: 1;
+  color: var(--mp-muted); cursor: pointer; padding: 0; margin-right: 2px;
+  background: transparent; border: 0;
+}
+.mp-requirements .mp-row-toggle:hover { color: var(--mp-accent); }
+.mp-requirements .mp-row-toggle.mp-is-empty { cursor: default; }
+
+.mp-requirements .mp-detail-head { display: flex; align-items: flex-start; gap: 8px; }
+.mp-requirements .mp-detail-head > div:first-child { flex: 1; min-width: 0; }
+/* Icons with no frame until the pointer is on one, tucked into the panel's corner the way
+   Claude Code's pane controls sit (#256): the negative margins take back most of the
+   panel's 14px/16px padding, leaving each button 5px from the border. */
+.mp-requirements .mp-detail-tools { display: flex; gap: 2px; flex: 0 0 auto; margin: -9px -11px 0 0; }
+.mp-requirements .mp-icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; cursor: pointer;
+  color: var(--mp-button-fg, var(--mp-muted)); background: transparent;
+  border: 0; border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-icon-button:hover { background: var(--mp-button-hover, var(--mp-inset)); }
+.mp-requirements .mp-layout.mp-is-expanded .mp-detail { flex: 1 1 auto; max-width: none; }
+.mp-requirements .mp-fallback {
+  display: block; margin-top: 16px; font-size: 13px; color: var(--mp-muted);
+}
+
+.mp-requirements .mp-comment {
+  width: 100%; font: inherit; font-size: 13px; padding: 7px 9px; resize: vertical;
+  background: var(--mp-inset); color: inherit;
+  border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-comment-actions { display: flex; justify-content: flex-end; margin: 6px 0 12px; }
+/* The shared primary button; its colours are the theme's (theme.css). */
+.mp-requirements .mp-action.mp-is-primary {
+  background: var(--mp-primary-bg); border-color: var(--mp-primary-bg); color: var(--mp-primary-fg);
+}
+.mp-requirements .mp-action.mp-is-primary:hover {
+  background: var(--mp-primary-bg-hover); border-color: var(--mp-primary-bg); color: var(--mp-primary-fg);
+}
+/* History reads as a timeline: a disc per entry with a line strung between them, name
+   and time on one row, every change on its own indented line under it. The shape is
+   OpenProject's own 活动, so the two stay recognisable as the same record. Dashed rules
+   between entries ran them together once a single entry carried ten changes. */
+.mp-requirements .mp-history { list-style: none; margin: 0; padding: 0; }
+.mp-requirements .mp-history-item {
+  position: relative; display: flex; gap: 10px; padding: 0 0 16px; font-size: 13px;
+}
+/* The line hangs below one disc and stops at the next, so it never runs past the last. */
+.mp-requirements .mp-history-item::before {
+  content: ''; position: absolute; left: 13px; top: 30px; bottom: 0;
+  width: 2px; background: var(--mp-border);
+}
+.mp-requirements .mp-history-item:last-child { padding-bottom: 0; }
+.mp-requirements .mp-history-item:last-child::before { display: none; }
+
+.mp-requirements .mp-avatar {
+  position: relative; flex: 0 0 28px; width: 28px; height: 28px; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  border-radius: 50%; background: var(--mp-avatar-bg, hsl(var(--mp-avatar-hue, 212), 42%, 46%));
+  color: var(--mp-avatar-fg, #fff); font-size: 11px; font-weight: 600; line-height: 1; user-select: none;
+}
+.mp-requirements .mp-avatar-image {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+}
+
+.mp-requirements .mp-history-body { flex: 1 1 auto; min-width: 0; padding-top: 5px; }
+.mp-requirements .mp-history-meta {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+.mp-requirements .mp-history-user { font-weight: 600; }
+/* The agent reads as part of the signature, a step quieter than the person. */
+.mp-requirements .mp-history-agent { font-weight: 400; }
+/* The stamp keeps to one piece; a narrow panel wraps the name, never the time. */
+.mp-requirements .mp-history-time {
+  color: var(--mp-muted); font-size: 12px; white-space: nowrap;
+}
+.mp-requirements .mp-history-comment { margin: 6px 0 0; font-size: 14px; }
+.mp-requirements .mp-history-details { list-style: none; margin: 6px 0 0; padding: 0; }
+.mp-requirements .mp-history-detail {
+  color: var(--mp-muted); padding-left: 12px; margin-top: 3px; line-height: 1.5;
+}
+
+.mp-requirements .mp-tabs {
+  display: flex; gap: 2px; margin: 14px 0 0; border-bottom: 1px solid var(--mp-border);
+}
+.mp-requirements .mp-tab {
+  display: flex; align-items: center; gap: 5px; font: inherit; font-size: 13px;
+  color: var(--mp-muted); cursor: pointer; padding: 6px 10px; margin-bottom: -1px;
+  background: transparent; border: 0; border-bottom: 2px solid transparent;
+}
+.mp-requirements .mp-tab:hover { color: var(--mp-accent); }
+.mp-requirements .mp-tab.mp-is-active {
+  color: inherit; font-weight: 600; border-bottom-color: var(--mp-selected-fg, var(--mp-accent));
+}
+.mp-requirements .mp-tab-count {
+  font-size: 13px; color: var(--mp-muted); background: var(--mp-inset);
+  border-radius: 999px; padding: 0 6px;
+}
+/* The body under the tabs runs to thousands of words while the list beside it is a dozen
+   rows, so the page scrollbar was moving the wrong thing: reading to the end of a
+   requirement scrolled the list, the panel's own title and its tabs off the top
+   (Brian 2026-09-22). The panel stays put and the part under the tabs carries its own
+   scrollbar instead.
+   The scroll container is OpenProject's #content-body, not the window. 133px is measured,
+   not guessed: 55px of OpenProject top bar above the scrollport, 66px for this page's own
+   heading row above the panel, and 12px of breathing room. Sized to fit without scrolling
+   first — bounding it to the pinned position instead would leave the panel's bottom edge
+   below the fold until you scrolled, which is a strange thing to have to do to a panel
+   whose whole job is to stay put. */
+.mp-requirements .mp-detail {
+  position: sticky; top: 12px;
+  display: flex; flex-direction: column;
+  max-height: calc(100vh - 133px);
+}
+.mp-requirements .mp-detail-head,
+.mp-requirements .mp-tabs { flex: 0 0 auto; }
+.mp-requirements .mp-tab-body {
+  padding-top: 4px; flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  /* Keeps the text off the scrollbar rather than letting it run underneath. */
+  padding-right: 6px; margin-right: -6px;
+}
+/* Below the breakpoint the panel sits under the list and the page's own scrollbar is the
+   right one again — pinning it there would trap the body in a sliver of screen. This
+   repeats the breakpoint rather than extending the one further up the file, because these
+   two rules are what it has to overrule and they are declared after it. */
+@media (max-width: 900px) {
+  .mp-requirements .mp-detail {
+    position: static; max-height: none; display: block;
+  }
+  .mp-requirements .mp-tab-body {
+    overflow-y: visible; padding-right: 0; margin-right: 0;
+  }
+}
+.mp-requirements .mp-tab-body .mp-detail-section:first-child { border-top: 0; margin-top: 8px; padding-top: 0; }
+
+.mp-requirements .mp-actions { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 0; }
+.mp-requirements .mp-form {
+  margin-top: 10px; padding: 10px 12px; font-size: 13px;
+  background: var(--mp-inset); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-form-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+/* The completion form hides the fields of the delivery kind not chosen; `display: flex`
+   above would otherwise override the hidden attribute. */
+.mp-requirements .mp-form-field[hidden] { display: none; }
+.mp-requirements .mp-form-label { color: var(--mp-muted); }
+.mp-requirements .mp-form-input {
+  font: inherit; font-size: 13px; padding: 5px 8px; width: 100%;
+  background: var(--mp-surface); color: inherit;
+  border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-form-note { color: var(--mp-muted); margin: 0 0 8px; }
+.mp-requirements .mp-form-actions { display: flex; justify-content: flex-end; }
+
+/* Tags and tones ---------------------------------------------------------------
+   A tone only declares two variables. Whatever wears it — a static tag or an editable
+   cell — reads them, so 类型 and 需求状态 look the same whether or not the cell can be
+   changed, and nothing has to out-specify OpenProject's own control styling. */
+
+.mp-requirements .mp-tone-danger    { --mp-tone-fg: var(--mp-bad);  --mp-tone-bg: color-mix(in srgb, var(--mp-bad) 12%, transparent); }
+.mp-requirements .mp-tone-done      { --mp-tone-fg: var(--mp-done); --mp-tone-bg: color-mix(in srgb, var(--mp-done) 12%, transparent); }
+.mp-requirements .mp-tone-accent    {
+  --mp-tone-fg: var(--mp-current-fg); --mp-tone-bg: var(--mp-current-bg); --mp-tone-line: var(--mp-current-border);
+}
+.mp-requirements .mp-tone-attention { --mp-tone-fg: var(--mp-warn); --mp-tone-bg: var(--mp-warn-soft); }
+.mp-requirements .mp-tone-success   { --mp-tone-fg: var(--mp-ok);   --mp-tone-bg: var(--mp-ok-soft); }
+.mp-requirements .mp-tone-muted,
+.mp-requirements .mp-tone-neutral   { --mp-tone-fg: var(--mp-muted);                 --mp-tone-bg: var(--mp-inset); }
+
+.mp-requirements span.mp-tag {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 13px;
+  white-space: nowrap; border: 1px solid var(--mp-tone-line, currentColor);
+  color: var(--mp-tone-fg, inherit); background: var(--mp-tone-bg, transparent);
+}
+
+/* An editable cell has to sit on the same baseline as a plain one, or every second
+   column looks nudged down: same padding, same line height, no browser chrome. */
+.mp-requirements span.mp-cell-text,
+.mp-requirements select.mp-cell-input {
+  display: inline-block; font: inherit; font-size: 13px;
+  line-height: 20px; padding: 1px 8px; max-width: 100%;
+  border: 1px solid transparent; border-radius: 999px;
+  color: var(--mp-tone-fg, inherit); background-color: var(--mp-tone-bg, transparent);
+}
+
+/* OpenProject pins `background-color` on every select with !important
+   (`select:not(.FormControl-select)`), so a tone cannot reach an editable cell any other
+   way. Its dropdown arrow is deliberately left in place: it is what tells a reader the
+   cell can be changed. */
+.mp-requirements select.mp-cell-input {
+  background-color: var(--mp-tone-bg, transparent) !important;
+  padding-right: 20px;
+}
+.mp-requirements span.mp-cell-text { border-radius: 0; padding-left: 0; background: transparent; }
+.mp-requirements select.mp-cell-input { cursor: pointer; }
+.mp-requirements select.mp-cell-input:hover { border-color: currentColor; }
+.mp-requirements select.mp-cell-input:focus { border-color: var(--mp-accent); outline: none; }
+.mp-requirements select.mp-cell-input[disabled] { opacity: .5; }
+.mp-requirements .mp-table td { padding: 6px 8px; vertical-align: middle; }
+.mp-requirements .mp-table td > span, .mp-requirements .mp-table td > select { vertical-align: middle; }
+
+/* Column resizing -------------------------------------------------------------- */
+
+/* ⛔ The th must NOT clip. It is the containing block for the filter popup (position
+   absolute, top 100%), so overflow:hidden here hides the popup entirely: the header
+   lights up as though it opened and nothing appears. That shipped once already, with
+   column resizing, and it is invisible to any test that clicks the options through the
+   DOM — a programmatic click works fine on a clipped element. The narrowed-column
+   clipping it was added for belongs on the header's own content instead, below. */
+.mp-requirements .mp-table th { position: relative; }
+.mp-requirements .mp-th, .mp-requirements .mp-th-plain { overflow: hidden; }
+.mp-requirements .mp-th-plain {
+  display: block; font-size: 13px; font-weight: 600; color: var(--mp-muted); padding: 6px 8px;
+  border-bottom: 1px solid var(--mp-border);
+}
+.mp-requirements .mp-resize {
+  position: absolute; top: 0; right: 0; width: 7px; height: 100%;
+  cursor: col-resize; user-select: none;
+}
+.mp-requirements .mp-resize:hover { background: var(--mp-accent); opacity: .35; }
+.mp-requirements .mp-table td { overflow: hidden; text-overflow: ellipsis; }
+.mp-requirements .mp-col-title { white-space: normal; }
+
+/* Paging ------------------------------------------------------------------------ */
+
+.mp-requirements .mp-pager {
+  display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 13px;
+}
+.mp-requirements .mp-pager-label { color: var(--mp-muted); }
+
+/* Type scale ------------------------------------------------------------------
+   The first pass was built at 12–13px throughout, which is fine to glance at and tiring
+   to actually read (Brian 2026-09-22). Everything moved up a step; the row itself sets
+   the baseline so a cell inherits it rather than restating a size. */
+.mp-requirements { font-size: 14px; line-height: 1.6; }
+.mp-requirements .mp-table td { font-size: 14px; }
+.mp-requirements span.mp-cell-text,
+.mp-requirements select.mp-cell-input { font-size: 13.5px; line-height: 22px; }
+.mp-requirements span.mp-tag { font-size: 13px; }
+.mp-requirements .mp-th, .mp-requirements .mp-th-plain { font-size: 13px; }
+.mp-requirements .mp-detail-title { font-size: 20px; }
+.mp-requirements .mp-detail-heading { font-size: 14px; }
+.mp-requirements .mp-facts { font-size: 13.5px; }
+.mp-requirements .mp-tab { font-size: 14px; }
+
+/* Overview attributes ----------------------------------------------------------
+   Grouped and spaced. A label sits above its value rather than beside it, so a long
+   value does not squeeze the label column and every row keeps the same rhythm. */
+
+.mp-requirements .mp-group { margin: 18px 0; }
+.mp-requirements .mp-group-title {
+  font-size: 12px; font-weight: 600; letter-spacing: .04em; margin: 0 0 10px;
+  color: var(--mp-muted); text-transform: none;
+}
+.mp-requirements .mp-group-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px 20px;
+}
+.mp-requirements .mp-attr { min-width: 0; }
+.mp-requirements .mp-attr-label { font-size: 12px; color: var(--mp-muted); margin-bottom: 3px; }
+.mp-requirements .mp-attr-value { font-size: 14px; word-break: break-word; }
+.mp-requirements .mp-detail-section { margin-top: 20px; padding-top: 14px; }
+.mp-requirements .mp-ready { margin-top: 4px; }
+
+/* A free-text column filters by typing rather than by ticking. */
+.mp-requirements .mp-filter-search {
+  display: block; width: 100%; margin-top: 4px; padding: 5px 8px; font-size: 13px;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-requirements .mp-filter-search:focus { outline: 2px solid var(--mp-accent); outline-offset: -1px; }
+
+/* The table stays even when it matches nothing, so the header filters remain reachable. */
+.mp-requirements .mp-row-empty td { text-align: center; padding: 28px 8px; }
+.mp-requirements .mp-clear-filters { margin-left: 4px; }
+
+/* Narrow screens (EVAPROJECT-REQ-20260928-002) ----------------------------------------
+   Below 900px the list and the panel no longer fit side by side. Nine columns at their own
+   widths want 1,150px: on a phone only ID and 需求 ID were in view, the title a drag away.
+   And the panel, stacked under the list, opened a screen or more below the row just
+   tapped, so a tap seemed to do nothing. So the table becomes a list of cards and the
+   panel a sheet over it (its 返回列表, and the browser's back, close it). Nothing in this
+   block applies above 900px. */
+
+.mp-requirements .mp-sheet-bar,
+.mp-requirements .mp-filter-shade { display: none; }
+
+@media (max-width: 900px) {
+  .mp-requirements .mp-header { flex-wrap: wrap; row-gap: 8px; }
+  /* Full width: the stacked layout sizes its children to their content, and the chips'
+     row alone is 800px of it. */
+  .mp-requirements .mp-main { width: 100%; overflow-x: visible; }
+
+  .mp-requirements .mp-table,
+  .mp-requirements .mp-table thead,
+  .mp-requirements .mp-table tbody { display: block; width: 100%; }
+  .mp-requirements .mp-table colgroup { display: none; }
+
+  /* The column headers are where the filters live, so they stay: a row of chips that
+     scrolls sideways, the most used first, fading out at the edge to say there is more.
+     The fade is laid over the row, not masked into it: a mask would make the row the box
+     the filter's fixed popup is placed in, and clip it out of sight. */
+  .mp-requirements .mp-table thead { position: relative; }
+  .mp-requirements .mp-table thead::after {
+    content: ""; position: absolute; top: 0; right: 0; bottom: 10px; width: 28px; pointer-events: none;
+    background: linear-gradient(to right, transparent, var(--body-background, var(--mp-surface)));
+  }
+  .mp-requirements .mp-table thead tr {
+    display: flex; gap: 6px; overflow-x: auto; padding: 0 24px 10px 0; scrollbar-width: none;
+  }
+  .mp-requirements .mp-table thead tr::-webkit-scrollbar { display: none; }
+  .mp-requirements .mp-table th { display: block; flex: none; border: 0; }
+  .mp-requirements th[data-column="title"] { order: 1; }
+  .mp-requirements th[data-column="state"] { order: 2; }
+  .mp-requirements th[data-column="responsibleAgent"] { order: 3; }
+  .mp-requirements th[data-column="claimedAgent"] { order: 4; }
+  .mp-requirements th[data-column="typeName"] { order: 5; }
+  .mp-requirements th[data-column="workPackageId"] { order: 6; }
+  .mp-requirements th[data-column="id"] { order: 7; }
+  .mp-requirements th[data-column="ownerUserId"] { order: 8; }
+  .mp-requirements th[data-column="visibility"] { order: 9; }
+  .mp-requirements .mp-th {
+    width: auto; padding: 6px 12px; white-space: nowrap;
+    border: 1px solid var(--mp-border); border-radius: 999px; background: var(--mp-surface);
+  }
+  .mp-requirements .mp-th.mp-is-filtered { background: var(--mp-current-bg); border-color: var(--mp-current-border); }
+  .mp-requirements .mp-resize { display: none; }
+
+  /* A filter's values rise from the bottom, over a shade that closes them. */
+  .mp-requirements .mp-filter-shade {
+    display: block; position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, .4);
+  }
+  .mp-requirements .mp-filter-menu {
+    top: auto !important; left: 0 !important; right: 0; bottom: 0; z-index: 901;
+    min-width: 0; max-height: min(80vh, 560px);
+    padding: 12px 14px calc(16px + env(safe-area-inset-bottom));
+    border: 0; border-radius: 14px 14px 0 0; box-shadow: 0 -8px 30px rgba(0, 0, 0, .25);
+  }
+  .mp-requirements .mp-filter-note { font-size: 13px; padding: 2px 4px 8px; }
+  .mp-requirements .mp-filter-clear { padding: 10px 4px; font-size: 14px; }
+  .mp-requirements .mp-filter-option { gap: 10px; padding: 11px 4px; font-size: 15px; white-space: normal; }
+  .mp-requirements .mp-filter-option input { width: 18px; height: 18px; flex: none; }
+  .mp-requirements .mp-filter-search { margin-top: 8px; padding: 9px 10px; }
+  /* A box to type into drops from the top instead, clear of the keyboard coming up. */
+  .mp-requirements .mp-filter-menu:has(.mp-filter-search) {
+    top: 0 !important; bottom: auto; padding-bottom: 14px; border-radius: 0 0 14px 14px;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, .25);
+  }
+
+  /* A card per requirement: the title on top, its two numbers under it, then where it
+     stands. A child is indented as a whole card rather than by its title alone. */
+  .mp-requirements .mp-table tbody { border-top: 1px solid var(--mp-border); }
+  .mp-requirements .mp-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 3px 10px;
+    padding: 11px 4px 12px calc(4px + var(--mp-depth, 0) * 16px);
+  }
+  /* The break between the numbers and the state: nothing else ends that line. */
+  .mp-requirements .mp-row::after { content: ""; order: 1; flex: 0 0 100%; }
+  .mp-requirements .mp-table td { display: block; padding: 0; overflow: visible; }
+  .mp-requirements td.mp-col-title {
+    order: -1; flex: 0 0 100%; padding: 0 !important; margin-bottom: 1px;
+    font-size: 15px; line-height: 1.45;
+  }
+  .mp-requirements td.mp-col-id { flex: none; font-size: 12.5px; color: var(--mp-muted); }
+  .mp-requirements td.mp-col-id::before { content: "#"; }
+  .mp-requirements td.mp-col-reqid {
+    flex: 1 1 0; min-width: 0; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .mp-requirements td[data-column="state"] { order: 2; }
+  .mp-requirements td[data-column="responsibleAgent"] { order: 3; }
+  .mp-requirements td[data-column="claimedAgent"] { order: 4; }
+  .mp-requirements td[data-column="typeName"] { order: 5; }
+  /* Who submitted it and who may see it are the same on nearly every row; the sheet says. */
+  .mp-requirements td[data-column="ownerUserId"],
+  .mp-requirements td[data-column="visibility"],
+  .mp-requirements td[data-column="claimedAgent"].mp-is-empty { display: none; }
+  /* Two agents side by side need their names said. */
+  .mp-requirements td[data-column="responsibleAgent"],
+  .mp-requirements td[data-column="claimedAgent"] { display: flex; align-items: center; gap: 3px; }
+  .mp-requirements td[data-column="responsibleAgent"]::before,
+  .mp-requirements td[data-column="claimedAgent"]::before {
+    flex: none; white-space: nowrap; font-size: 12.5px; color: var(--mp-muted);
+  }
+  .mp-requirements td[data-column="responsibleAgent"]::before { content: "负责"; }
+  .mp-requirements td[data-column="claimedAgent"]::before { content: "认领"; }
+  .mp-requirements td[data-column="claimedAgent"] span.mp-cell-text { padding: 0; }
+  /* A title lines up with the numbers under it; only a parent carries its toggle ahead. */
+  .mp-requirements .mp-row-toggle { width: 22px; height: 22px; margin-left: -5px; font-size: 12px; }
+  .mp-requirements .mp-row-toggle.mp-is-empty { display: none; }
+  .mp-requirements .mp-row-empty td { padding: 28px 8px; }
+
+  .mp-requirements .mp-pager { justify-content: space-between; margin-top: 14px; }
+  .mp-requirements .mp-action { padding: 7px 14px; }
+
+  /* The sheet. */
+  .mp-requirements .mp-detail {
+    position: fixed; inset: 0; z-index: 1000;
+    display: block; width: auto; max-width: none; max-height: none; margin: 0;
+    padding: 0 16px calc(32px + env(safe-area-inset-bottom));
+    overflow-y: auto; overscroll-behavior: contain;
+    border: 0; border-radius: 0;
+  }
+  /* The list under it keeps its place and stays still while the sheet or a filter's
+     values are open. */
+  body:has(.mp-requirements .mp-detail) :is(#content-wrapper, #content-body),
+  body:has(.mp-requirements .mp-filter-menu) :is(#content-wrapper, #content-body) { overflow: hidden; }
+  /* Safari on iOS paints each of OpenProject's touch-scrolling boxes as a layer of its own,
+     and kept the sheet and the filter's shade under the top bar however high their
+     z-index: the bar covered 返回列表. While either is open those boxes do not scroll, so
+     they stop being touch-scrolling boxes; the sheet and the menu scroll as their own. */
+  body:has(.mp-requirements .mp-detail) :is(#main, #content-wrapper, #content, #content-body),
+  body:has(.mp-requirements .mp-filter-menu) :is(#main, #content-wrapper, #content, #content-body) {
+    -webkit-overflow-scrolling: auto;
+  }
+  .mp-requirements .mp-detail,
+  .mp-requirements .mp-filter-menu { -webkit-overflow-scrolling: touch; }
+  .mp-requirements .mp-sheet-bar {
+    display: flex; align-items: center; position: sticky; top: 0; z-index: 2;
+    margin: 0 -16px; padding: 4px 8px;
+    background: var(--mp-surface); border-bottom: 1px solid var(--mp-border);
+  }
+  .mp-requirements .mp-sheet-back {
+    display: inline-flex; align-items: center; gap: 2px; min-height: 40px; padding: 0 10px 0 2px;
+    font: inherit; font-size: 15px; color: var(--mp-accent); cursor: pointer;
+    background: transparent; border: 0; border-radius: var(--mp-radius);
+  }
+  .mp-requirements .mp-detail-tools { display: none; }
+  .mp-requirements .mp-detail-head { padding-top: 14px; }
+  .mp-requirements .mp-tabs { overflow-x: auto; scrollbar-width: none; }
+  .mp-requirements .mp-tab { flex: none; padding: 10px 12px; font-size: 15px; }
+  .mp-requirements .mp-group-grid { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .mp-requirements .mp-ref { padding: 9px 12px; font-size: 14px; }
+  .mp-requirements .mp-form-input { padding: 8px 10px; }
+
+  /* A notice floats at the bottom, over the sheet when one is open; a tap puts it away. */
+  .mp-requirements .mp-notice,
+  .mp-requirements .mp-notice.mp-is-error {
+    position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 1100;
+    margin: 0; background: var(--mp-surface); box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
+  }
+}
+
+/* iOS zooms the page into any field set smaller than 16px when it takes focus, and leaves
+   it zoomed; a touch screen gets its fields at 16px. */
+@media (pointer: coarse) {
+  .mp-requirements select.mp-cell-input,
+  .mp-requirements .mp-filter-search,
+  .mp-requirements .mp-form-input,
+  .mp-requirements .mp-comment { font-size: 16px; }
+}
+
+/* A phone: OpenProject's own 15px margin is enough, and only the heading row moves over
+   for the navigation button that sits at the top left of the content. */
+@media (max-width: 640px) {
+  .mp-requirements, .hidden-navigation .mp-requirements { padding: 4px 0 24px; }
+  .hidden-navigation .mp-requirements .mp-header::before { content: ""; flex: none; width: 18px; }
+  .hidden-navigation .mp-requirements .mp-panel-title { padding-left: 30px; }
+}

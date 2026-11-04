@@ -1,0 +1,4 @@
+[submodule "vendor/openproject-docker-compose"]
+	path = vendor/openproject-docker-compose
+	url = https://github.com/opf/openproject-docker-compose.git
+	branch = stable/17

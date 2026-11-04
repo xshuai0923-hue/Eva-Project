@@ -1,0 +1,44 @@
+#!/bin/zsh
+set -eu
+export PATH="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export DOCKER_CONTEXT="colima-evaproject"
+export LC_ALL=en_US.UTF-8
+root="${EVAPROJECT_HOME_ROOT:-/Users/Shared/Eva-Project}"
+project_root="$root/current"
+env_file="$root/runtime/.env"
+compose() {
+  docker-compose --project-name eva-project --env-file "$env_file" \
+    -f "$project_root/vendor/openproject-docker-compose/docker-compose.yml" \
+    -f "$project_root/deploy/docker-compose.override.yml" \
+    -f "$project_root/deploy/docker-compose.home.yml" "$@"
+}
+start_vm() {
+  colima status --profile evaproject >/dev/null 2>&1 && return 0
+  colima start --profile evaproject --activate=false --cpu 2 --memory 4 --disk 20 \
+    --vm-type vz --mount-type virtiofs --network-host-addresses --mount "$root:w"
+}
+case "${1:-}" in
+  up)
+    start_vm
+    [ -f "$env_file" ] || { print -u2 'Create the independent runtime configuration first.'; exit 1; }
+    compose up -d --no-build --remove-orphans db cache web worker cron hocuspocus proxy autoheal mcp
+    ;;
+  prepare)
+    start_vm
+    compose up -d --no-build db cache seeder web worker cron hocuspocus proxy autoheal
+    ;;
+  bootstrap)
+    compose exec -T -e EVAPROJECT_BOOTSTRAP_OUTPUT_DIR=/evaproject-runtime web bundle exec rails runner - < "$project_root/deploy/bootstrap/openproject_bootstrap.rb"
+    ruby - "$root/runtime" <<'RUBY'
+root = ARGV.fetch(0)
+token = File.read(File.join(root, "openproject-api-token")).strip
+path = File.join(root, ".env")
+text = File.read(path).lines.map { |line| line.start_with?("OPENPROJECT_API_TOKEN=") ? "OPENPROJECT_API_TOKEN=#{token}\n" : line }.join
+File.open(path, "w", 0600) { |f| f.write(text) }
+File.chmod(0600, path)
+RUBY
+    ;;
+  status) compose ps ;;
+  logs) compose logs --tail 60 "${2:-web}" ;;
+  *) print -u2 'Usage: evaproject-home prepare|bootstrap|up|status|logs [service]'; exit 2 ;;
+esac

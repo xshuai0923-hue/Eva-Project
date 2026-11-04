@@ -1,0 +1,243 @@
+/* The top bar's search and its results page (Brian 2026-09-24, #218). Loaded on every
+   page for a signed-in reader. Colours come from the Primer variables the theme redefines,
+   so light and dark follow the instance; nothing here reaches outside the box, its panel
+   or the results page. State chips take the palette's own hues, and what is in progress is
+   drawn as the theme draws what is current (#246). */
+
+.mp-search,
+.mp-search-page {
+  --mp-border: var(--borderColor-default, #d1d9e0);
+  --mp-border-muted: var(--borderColor-muted, #d1d9e0b3);
+  --mp-muted: var(--fgColor-muted, #59636e);
+  --mp-ink: var(--fgColor-default, #1f2328);
+  --mp-accent: var(--fgColor-accent, #0969da);
+  --mp-accent-soft: var(--bgColor-accent-muted, #ddf4ff);
+  --mp-wash: var(--bgColor-neutral-muted, rgba(129, 139, 152, .12));
+  /* Each falls back to what it was, for the high-contrast themes theme.css leaves alone. */
+  --mp-warn: var(--mp-hue-amber, var(--fgColor-attention, #9a6700));
+  --mp-warn-soft: color-mix(in srgb, var(--mp-warn) 12%, transparent);
+  --mp-ok: var(--mp-hue-green, var(--fgColor-success, #1a7f37));
+  --mp-bad: var(--mp-hue-red, var(--fgColor-danger, #d1242f));
+  --mp-current-fg: var(--mp-selected-fg, var(--mp-accent));
+  --mp-current-bg: var(--mp-selected-bg, var(--mp-accent-soft));
+  --mp-current-border: var(--mp-selected-border, var(--mp-accent));
+  --mp-mark: color-mix(in srgb, var(--mp-theme-accent, #cc785c) 26%, transparent);
+  --mp-radius: var(--borderRadius-medium, 6px);
+}
+
+/* What the words matched, in the title, the numbers and the text around a match. */
+.mp-search-mark {
+  color: inherit;
+  background: var(--mp-mark);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.mp-search .mp-tone-muted,
+.mp-search-page .mp-tone-muted { color: var(--mp-muted); }
+.mp-search .mp-tone-accent,
+.mp-search-page .mp-tone-accent {
+  color: var(--mp-current-fg); background: var(--mp-current-bg); border-color: var(--mp-current-border);
+}
+.mp-search .mp-tone-attention,
+.mp-search-page .mp-tone-attention { color: var(--mp-warn); background: var(--mp-warn-soft); }
+.mp-search .mp-tone-success,
+.mp-search-page .mp-tone-success {
+  color: var(--mp-ok); background: color-mix(in srgb, var(--mp-ok) 12%, transparent);
+}
+.mp-search-chip {
+  flex: none; padding: 0 7px; font-size: 11.5px; line-height: 17px; white-space: nowrap;
+  border: 1px solid currentColor; border-radius: 999px;
+}
+.mp-search-num,
+.mp-search-bid {
+  flex: none; font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 11.5px;
+}
+.mp-search-count {
+  flex: none; padding: 0 7px; border-radius: 999px; font-size: 11.5px; line-height: 18px;
+  font-weight: 400; color: var(--mp-muted); background: var(--mp-wash); font-variant-numeric: tabular-nums;
+}
+.mp-search-note { margin: 0; padding: 14px 12px; font-size: 13px; color: var(--mp-muted); }
+.mp-search-note.mp-is-error { color: var(--mp-bad); }
+
+.mp-search .mp-loading,
+.mp-search-page .mp-loading {
+  display: flex; align-items: center; gap: 8px; padding: 14px 12px; color: var(--mp-muted); font-size: 13px;
+}
+.mp-search .mp-loading-ring,
+.mp-search-page .mp-loading-ring {
+  width: 14px; height: 14px; flex: none; box-sizing: border-box; border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--mp-accent) 22%, transparent);
+  border-top-color: var(--mp-accent);
+  animation: mp-search-turn .8s linear infinite;
+}
+@keyframes mp-search-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mp-search .mp-loading-ring,
+  .mp-search-page .mp-loading-ring { animation: none; }
+}
+
+/* The box ---------------------------------------------------------------------------
+   On the right of the bar, before the appearance control: the middle belongs to the name
+   (Brian 2026-09-22). A filled field a step off the bar in both themes. */
+
+.op-app-header--end .mp-search.op-app-menu--item { margin-right: 6px; }
+.mp-search { --mp-search-field: var(--bgColor-muted, #f6f8fa); position: relative; display: flex; align-items: center; }
+body[data-color-mode="dark"] .mp-search { --mp-search-field: var(--bgColor-default, #0d1117); }
+
+.mp-search-form { position: relative; display: flex; align-items: center; margin: 0; }
+.mp-search-icon {
+  position: absolute; left: 9px; top: 50%; transform: translateY(-50%);
+  color: var(--mp-muted); pointer-events: none;
+}
+/* Under the form, to outrank OpenProject's own input[type=search] rule (0,1,1). */
+.mp-search-form .mp-search-input {
+  box-sizing: border-box; width: 248px; height: 32px; margin: 0; padding: 0 30px 0 31px;
+  font: inherit; font-size: 13.5px; color: var(--mp-ink);
+  background: var(--mp-search-field);
+  border: 1px solid var(--mp-border); border-radius: 8px;
+  outline: none;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+.mp-search-form .mp-search-input::placeholder { color: var(--mp-muted); opacity: 1; }
+.mp-search-form .mp-search-input:hover { border-color: color-mix(in srgb, var(--mp-muted) 45%, var(--mp-border)); }
+.mp-search-form .mp-search-input:focus {
+  background: var(--bgColor-default, #ffffff);
+  border-color: var(--mp-theme-accent, var(--mp-accent));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--mp-theme-accent, #cc785c) 20%, transparent);
+}
+.mp-search-key {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  min-width: 16px; padding: 0 4px; box-sizing: border-box; text-align: center;
+  font: 11px/16px var(--mp-font-mono, ui-monospace, monospace); color: var(--mp-muted);
+  border: 1px solid var(--mp-border); border-radius: 4px; pointer-events: none;
+}
+.mp-search-form:focus-within .mp-search-key,
+.mp-search-input:not(:placeholder-shown) + .mp-search-key { display: none; }
+
+/* The panel under it: the first few of each group, and the way to all of them. */
+.mp-search-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; z-index: 40;
+  width: min(480px, calc(100vw - 24px)); max-height: min(72vh, 600px); overflow-y: auto;
+  box-sizing: border-box; padding: 6px;
+  color: var(--mp-ink);
+  background: var(--overlay-bgColor, var(--bgColor-default, #ffffff));
+  border: 1px solid var(--mp-border); border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .18), 0 2px 6px rgba(0, 0, 0, .08);
+}
+body[data-color-mode="dark"] .mp-search-panel { box-shadow: 0 12px 32px rgba(0, 0, 0, .55), 0 2px 6px rgba(0, 0, 0, .4); }
+.mp-search-panel[hidden] { display: none; }
+.mp-search-panel.mp-is-loading .mp-search-hit { opacity: .55; }
+
+.mp-search-group-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 10px 4px;
+  font-size: 12px; font-weight: 600; color: var(--mp-muted);
+}
+.mp-search-group-head:first-child { padding-top: 4px; }
+
+.mp-search-hit,
+.mp-search-all {
+  display: flex; box-sizing: border-box; width: 100%; padding: 7px 10px; border-radius: 8px;
+  color: inherit; text-decoration: none;
+}
+.mp-search-hit { flex-direction: column; gap: 2px; }
+.mp-search-hit:hover,
+.mp-search-all:hover,
+.mp-search-hit.mp-is-active,
+.mp-search-all.mp-is-active { background: var(--mp-theme-hover, var(--mp-wash)); color: inherit; text-decoration: none; }
+/* In dark the theme's hover step is the panel's own colour, so the chosen row did not show. */
+body[data-color-mode="dark"] .mp-search-hit:hover,
+body[data-color-mode="dark"] .mp-search-all:hover,
+body[data-color-mode="dark"] .mp-search-hit.mp-is-active,
+body[data-color-mode="dark"] .mp-search-all.mp-is-active { background: var(--mp-wash); }
+.mp-search-hit-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.mp-search-hit-title {
+  flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 13.5px; line-height: 1.45; color: var(--mp-ink);
+}
+.mp-search-hit-project { flex: none; max-width: 40%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11.5px; color: var(--mp-muted); }
+.mp-search-hit-meta {
+  display: flex; align-items: center; gap: 8px; min-width: 0; overflow: hidden;
+  font-size: 12px; line-height: 18px; color: var(--mp-muted); white-space: nowrap;
+}
+.mp-search-hit-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mp-search-where { font-style: normal; }
+
+.mp-search-all {
+  align-items: center; justify-content: space-between; margin-top: 4px; padding-top: 9px; padding-bottom: 9px;
+  border-top: 1px solid var(--mp-border-muted); border-radius: 0 0 8px 8px;
+  font-size: 13px; color: var(--mp-theme-accent-text, var(--mp-accent));
+}
+.mp-search-all:hover,
+.mp-search-all.mp-is-active { color: var(--mp-theme-accent-text, var(--mp-accent)); }
+.mp-search-enter {
+  padding: 0 5px; font: 11px/16px var(--mp-font-mono, ui-monospace, monospace); color: var(--mp-muted);
+  border: 1px solid var(--mp-border); border-radius: 4px;
+}
+
+/* A narrow bar has no room for a wide box; the panel then spans the window. */
+@media screen and (max-width: 680px) {
+  .mp-search-form .mp-search-input { width: 150px; }
+  .mp-search-key { display: none; }
+  .mp-search-panel { position: fixed; top: 58px; left: 12px; right: 12px; width: auto; }
+}
+
+/* The results page ------------------------------------------------------------------ */
+
+.mp-search-page { box-sizing: border-box; max-width: 960px; padding: 12px 16px 40px; }
+.hidden-navigation .mp-search-page { padding-left: 44px; }
+.mp-search-page button { font: inherit; }
+
+.mp-search-page-head { margin: 4px 0 20px; }
+.mp-search-page-title {
+  margin: 0 0 6px; font-family: var(--mp-font-display, serif); font-size: 26px; font-weight: 400; letter-spacing: -0.01em;
+}
+.mp-search-page-summary { margin: 0; font-size: 13.5px; color: var(--mp-muted); }
+
+.mp-search-group { margin-bottom: 28px; }
+.mp-search-page-group-head {
+  display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--mp-border);
+}
+.mp-search-page-group-head h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.mp-search-page-group-head .mp-loading { padding: 0; margin-left: auto; font-size: 12px; }
+.mp-search-page-group-head .mp-loading-ring { width: 12px; height: 12px; border-width: 1.5px; }
+.mp-search-group.mp-is-loading .mp-search-list { opacity: .5; }
+.mp-search-empty { margin: 0; padding: 14px 2px; font-size: 13px; color: var(--mp-muted); }
+
+.mp-search-list { list-style: none; margin: 0; padding: 0; }
+.mp-search-list > li { border-bottom: 1px solid var(--mp-border-muted); }
+.mp-search-row {
+  display: flex; flex-direction: column; gap: 5px; padding: 12px 8px; margin: 0 -8px;
+  border-radius: 8px; color: inherit; text-decoration: none;
+}
+.mp-search-row:hover { background: var(--mp-theme-hover, var(--mp-wash)); color: inherit; text-decoration: none; }
+.mp-search-row-title { font-size: 15px; line-height: 1.45; color: var(--mp-ink); }
+.mp-search-row:hover .mp-search-row-title { color: var(--mp-theme-accent-text, var(--mp-accent)); }
+.mp-search-row-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 12.5px; color: var(--mp-muted);
+}
+.mp-search-row-note {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: 13px; line-height: 1.6; color: var(--mp-theme-body, var(--mp-ink));
+}
+.mp-search-row-note.mp-search-where { color: var(--mp-muted); font-size: 12.5px; }
+
+.mp-search-pager {
+  display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding-top: 12px;
+  font-size: 13px; color: var(--mp-muted); font-variant-numeric: tabular-nums;
+}
+.mp-search-page-button {
+  padding: 4px 12px; cursor: pointer; border-radius: 8px;
+  color: var(--mp-button-fg, var(--mp-ink)); background: var(--mp-button-bg, transparent);
+  border: 1px solid var(--mp-button-border, var(--mp-border));
+}
+.mp-search-page-button:hover:not(:disabled) { background: var(--mp-button-hover, var(--mp-wash)); }
+.mp-search-page-button:disabled { opacity: .45; cursor: default; }
+
+/* A phone (EVAPROJECT-REQ-20260928-002): OpenProject's own 15px margin is enough, and only
+   the heading moves over for the navigation button at the top left of the content. */
+@media (max-width: 640px) {
+  .mp-search-page, .hidden-navigation .mp-search-page { padding: 4px 0 40px; }
+  .hidden-navigation .mp-search-page-title { padding-left: 30px; }
+  .mp-search-page-button { padding: 8px 14px; }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "eva-project",
+  "version": "0.1.5",
+  "description": "Eva Project 需求、交接与 Agent 接入",
+  "author": {
+    "name": "Brian Tan"
+  },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "repository": "https://github.com/briantant3/Eva-Project"
+}

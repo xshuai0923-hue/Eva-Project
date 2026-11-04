@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.briantai.evaproject.home</string>
+  <key>ProgramArguments</key><array><string>/bin/zsh</string><string>/Users/Shared/Eva-Project/current/deploy/bin/evaproject-home</string><string>up</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/Shared/Eva-Project/runtime/logs/startup.log</string>
+  <key>StandardErrorPath</key><string>/Users/Shared/Eva-Project/runtime/logs/startup-error.log</string>
+</dict></plist>

@@ -1,0 +1,30 @@
+{
+  "name": "eva-project",
+  "version": "0.1.5",
+  "description": "Eva Project 需求、交接与 Agent 接入",
+  "author": {
+    "name": "Brian Tan"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Eva Project",
+    "shortDescription": "连接 Eva，管理需求与交接",
+    "longDescription": "把需求管理、认领、交付证据和结构化交接带到你的 Agent。支持个人账号授权与可配置的 Eva 服务。",
+    "developerName": "Brian Tan",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "连接我的 Eva Project 并列出项目",
+      "查看项目待处理需求",
+      "保存当前工作线的交接"
+    ],
+    "brandColor": "#cc785c",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
+  },
+  "mcpServers": "./.mcp.json",
+  "repository": "https://github.com/briantant3/Eva-Project"
+}

@@ -1,0 +1,142 @@
+services:
+  web:
+    labels:
+      autoheal: "false"
+      com.evaproject.autoheal: "true"
+    environment:
+      OPENPROJECT_HSTS: "${OPENPROJECT_HSTS:-false}"
+      OPENPROJECT_DEFAULT__LANGUAGE: "${OPENPROJECT_DEFAULT__LANGUAGE:-zh-CN}"
+      OPENPROJECT_APP__TITLE: "${OPENPROJECT_APP__TITLE:-Eva Project}"
+      OPENPROJECT_SELF__REGISTRATION: "0"
+      OPENPROJECT_PASSWORD__MIN__LENGTH: "8"
+      OPENPROJECT_PASSWORD__ACTIVE__RULES: "[numeric]"
+      # A new project's modules. Set here rather than only by the bootstrap, which does not
+      # run on deploy: a setting given by ENV is OpenProject's own way of pinning one, and it
+      # shows read-only in the admin UI. Existing projects and copies keep their own modules.
+      OPENPROJECT_DEFAULT__PROJECTS__MODULES: "[work_package_tracking]"
+      # The theme of anyone who has not chosen one, the login page included: follow the OS.
+      OPENPROJECT_USER__DEFAULT__THEME: "sync_with_os"
+      OPENPROJECT_USER__DEFAULT__TIMEZONE: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+      TZ: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+      # Brian 2026-09-23 (#189): no notification entry in the top bar. The core reads this
+      # setting in one place, the top bar, and only web renders that.
+      OPENPROJECT_NOTIFICATIONS__HIDDEN: "true"
+      EVAPROJECT_ADMIN_URL: "${EVAPROJECT_ADMIN_URL:?set EVAPROJECT_ADMIN_URL}"
+      EVAPROJECT_MCP_PUBLIC_URL: "${EVAPROJECT_MCP_PUBLIC_URL:-}"
+      EVAPROJECT_MCP_INTERNAL_URL: "${EVAPROJECT_MCP_INTERNAL_URL:-http://mcp:8081}"
+    volumes:
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_password_policy.rb:/app/config/initializers/evaproject_password_policy.rb:ro"
+      - "${EVAPROJECT_RUNTIME}:/evaproject-runtime"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_agent_access.rb:/app/config/initializers/evaproject_agent_access.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_navigation.rb:/app/config/initializers/evaproject_navigation.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_handoff.rb:/app/config/initializers/evaproject_handoff.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_requirements.rb:/app/config/initializers/evaproject_requirements.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_project_types.rb:/app/config/initializers/evaproject_project_types.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_tokens.rb:/app/config/initializers/evaproject_tokens.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_backup.rb:/app/config/initializers/evaproject_backup.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_theme.rb:/app/config/initializers/evaproject_theme.rb:ro"
+      - "${EVAPROJECT_ROOT}/deploy/openproject/assets:/app/public/evaproject:ro"
+      # Browsers ask for /favicon.ico on their own and keep it for months, so the image's
+      # own icon stayed in the tab after the pages named ours (Brian 2026-09-24, #210).
+      - "${EVAPROJECT_ROOT}/deploy/openproject/assets/favicon.ico:/app/public/favicon.ico:ro"
+
+  worker:
+    environment:
+      OPENPROJECT_HSTS: "${OPENPROJECT_HSTS:-false}"
+      OPENPROJECT_DEFAULT__LANGUAGE: "${OPENPROJECT_DEFAULT__LANGUAGE:-zh-CN}"
+      OPENPROJECT_APP__TITLE: "${OPENPROJECT_APP__TITLE:-Eva Project}"
+      OPENPROJECT_SELF__REGISTRATION: "0"
+      OPENPROJECT_PASSWORD__MIN__LENGTH: "8"
+      OPENPROJECT_PASSWORD__ACTIVE__RULES: "[numeric]"
+      OPENPROJECT_DEFAULT__PROJECTS__MODULES: "[work_package_tracking]"
+      OPENPROJECT_USER__DEFAULT__THEME: "sync_with_os"
+      OPENPROJECT_USER__DEFAULT__TIMEZONE: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+      TZ: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+
+    volumes:
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_password_policy.rb:/app/config/initializers/evaproject_password_policy.rb:ro"
+
+  cron:
+    environment:
+      OPENPROJECT_HSTS: "${OPENPROJECT_HSTS:-false}"
+      OPENPROJECT_DEFAULT__LANGUAGE: "${OPENPROJECT_DEFAULT__LANGUAGE:-zh-CN}"
+      OPENPROJECT_APP__TITLE: "${OPENPROJECT_APP__TITLE:-Eva Project}"
+      OPENPROJECT_SELF__REGISTRATION: "0"
+      OPENPROJECT_PASSWORD__MIN__LENGTH: "8"
+      OPENPROJECT_PASSWORD__ACTIVE__RULES: "[numeric]"
+      OPENPROJECT_DEFAULT__PROJECTS__MODULES: "[work_package_tracking]"
+      OPENPROJECT_USER__DEFAULT__THEME: "sync_with_os"
+      OPENPROJECT_USER__DEFAULT__TIMEZONE: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+      TZ: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+
+    volumes:
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_password_policy.rb:/app/config/initializers/evaproject_password_policy.rb:ro"
+
+  seeder:
+    environment:
+      OPENPROJECT_SEED__ADMIN__USER__PASSWORD: "${OPENPROJECT_SEED__ADMIN__USER__PASSWORD}"
+      OPENPROJECT_SEED__ADMIN__USER__PASSWORD__RESET: "${OPENPROJECT_SEED__ADMIN__USER__PASSWORD__RESET:-false}"
+      OPENPROJECT_SEED__ADMIN__USER__NAME: "${OPENPROJECT_SEED__ADMIN__USER__NAME:-Eva Project Admin}"
+      OPENPROJECT_SEED__ADMIN__USER__MAIL: "${OPENPROJECT_SEED__ADMIN__USER__MAIL:-admin@eva-project.local}"
+      OPENPROJECT_DEFAULT__LANGUAGE: "${OPENPROJECT_DEFAULT__LANGUAGE:-zh-CN}"
+      OPENPROJECT_APP__TITLE: "${OPENPROJECT_APP__TITLE:-Eva Project}"
+      OPENPROJECT_SELF__REGISTRATION: "0"
+      OPENPROJECT_PASSWORD__MIN__LENGTH: "8"
+      OPENPROJECT_PASSWORD__ACTIVE__RULES: "[numeric]"
+      OPENPROJECT_DEFAULT__PROJECTS__MODULES: "[work_package_tracking]"
+      OPENPROJECT_USER__DEFAULT__THEME: "sync_with_os"
+      OPENPROJECT_USER__DEFAULT__TIMEZONE: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+      TZ: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+
+    volumes:
+      - "${EVAPROJECT_ROOT}/deploy/openproject/evaproject_password_policy.rb:/app/config/initializers/evaproject_password_policy.rb:ro"
+
+  mcp:
+    build:
+      context: "${EVAPROJECT_ROOT}/services/mcp"
+    image: eva-project/openproject-mcp:0.2.0
+    user: "${EVAPROJECT_UID:-501}:${EVAPROJECT_GID:-20}"
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      PORT: "8081"
+      MCP_ALLOWED_HOSTS: "${MCP_ALLOWED_HOSTS}"
+      MCP_PRINCIPALS_FILE: "/evaproject-principals/principals.json"
+      OPENPROJECT_BASE_URL: "http://web:8080"
+      OPENPROJECT_PUBLIC_URL: "${OPENPROJECT_PUBLIC_URL:?set OPENPROJECT_PUBLIC_URL}"
+      OPENPROJECT_API_TOKEN: "${OPENPROJECT_API_TOKEN}"
+      OPENPROJECT_FIELD_MAP_FILE: "/evaproject-runtime/field-map.json"
+      # The backup page (#237): the MCP keeps the schedule, takes the backups and restores
+      # one, so it reaches the database and the attachments itself. The schedule is read
+      # on the server's clock.
+      TZ: "${EVAPROJECT_TZ:-Asia/Hong_Kong}"
+      EVAPROJECT_DATABASE_URL: "${DATABASE_URL:?set DATABASE_URL}"
+      EVAPROJECT_BACKUP_DIR: "/evaproject-backup"
+      EVAPROJECT_ASSETS_DIR: "/evaproject-data/assets"
+      EVAPROJECT_RUNTIME_ENV_FILE: "/evaproject-runtime/.env"
+    volumes:
+      # Read-only: the field map is read from here, and every backup copies .env and the
+      # field map out of it.
+      - "${EVAPROJECT_RUNTIME}:/evaproject-runtime:ro"
+      - "${EVAPROJECT_RUNTIME}/mcp:/evaproject-principals"
+      # Release backups at the top, the page's own in daily/. Beside runtime/ on both the
+      # server and the local instance.
+      - "${EVAPROJECT_BACKUP:-${EVAPROJECT_RUNTIME}/../backup}:/evaproject-backup"
+      - "${OPDATA:-opdata}:/evaproject-data/assets"
+    ports:
+      - "${MCP_BIND_ADDRESS:-127.0.0.1}:${MCP_PORT:-28081}:8081"
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  autoheal:
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: com.evaproject.autoheal

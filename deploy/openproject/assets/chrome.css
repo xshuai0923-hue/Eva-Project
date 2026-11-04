@@ -1,0 +1,425 @@
+/* The application chrome: the top bar, and the appearance control in it.
+   Loaded on every page, so everything here is scoped to the header or to our own
+   elements — nothing reaches into a module's body. */
+
+/* The bar follows the theme rather than staying black through both, which is what it did
+   at first and what made light mode look like a page wearing somebody else's hat. Light
+   gets a white bar and a hairline; dark gets one seated just below the canvas. The stock
+   controls in there are coloured from --header-item-font-color, which OpenProject pins to
+   white for its own blue bar, so the bar and that variable have to move together. */
+.op-app-header {
+  --header-item-font-color: var(--fgColor-default, #1f2328);
+  --mp-header-hover: rgba(0, 0, 0, .06);
+  --mp-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='black' d='M6.906.664a1.749 1.749 0 0 1 2.187 0l5.25 4.2c.415.332.657.835.657 1.367v7.019A1.75 1.75 0 0 1 13.25 15h-3.5a.75.75 0 0 1-.75-.75V9H7v5.25a.75.75 0 0 1-.75.75h-3.5A1.75 1.75 0 0 1 1 13.25V6.23c0-.531.242-1.034.657-1.366l5.25-4.2Z'/%3E%3C/svg%3E");
+  background: var(--bgColor-default, #ffffff);
+  border-bottom: 1px solid var(--borderColor-muted, #e4e8ec);
+}
+/* In dark the bar is a step *above* the canvas, not below it. Seating it darker than the
+   page was the first attempt and it read as one flat black: the bar has to be the raised
+   surface in both themes, which is a white bar over a light page and a lighter panel over
+   a dark one. --bgColor-muted is that step (#151b23 against the #0d1117 canvas). */
+body[data-color-mode="dark"] .op-app-header {
+  --header-item-font-color: var(--fgColor-default, #e6edf3);
+  --mp-header-hover: rgba(255, 255, 255, .08);
+  background: var(--bgColor-muted, #151b23);
+  border-bottom-color: var(--borderColor-muted, rgba(61, 68, 77, .7));
+}
+
+/* The approved EVA wordmark is transparent and switches with the application theme. */
+.op-app-header .op-app-search { display: none; }
+.op-app-header { position: relative; }
+.op-app-header .op-app-header--center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 100%;
+  transform: translateX(-50%);
+  display: flex !important;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+  padding: 0;
+  pointer-events: none;
+}
+.op-app-header--center::before {
+  content: "";
+  display: block;
+  width: 58px;
+  height: 20px;
+  background: url("/evaproject/eva-wordmark-light.svg?v=34861f555f") center / contain no-repeat;
+}
+body[data-color-mode="dark"] .op-app-header--center::before {
+  background-image: url("/evaproject/eva-wordmark-dark.svg?v=f9f37f8af4");
+}
+.op-app-header--center::after {
+  content: "Project";
+  font: 400 17px/1 var(--mp-font-display, Georgia, serif);
+  letter-spacing: .015em;
+  color: var(--header-item-font-color);
+  opacity: .88;
+}
+/* Preserve the compact navigation layout on phones. */
+@media screen and (max-width: 850px) {
+  .op-app-header .op-app-header--center { display: none !important; }
+}
+
+.op-logo { width: auto; }
+
+/* The wordmark was the stock link with its text hidden and ours drawn in ::after at 700,
+   which is heavier than anything else on the screen. A mark, a lighter weight and a
+   rounded face give it somewhere to sit instead of shouting. The mark is a mask rather
+   than an image so it takes the bar's own colour in both themes. */
+a.op-logo--link:not(.op-logo--icon) {
+  align-items: center;
+  background: none !important;
+  color: var(--header-item-font-color);
+  display: flex;
+  font-size: 0;
+  gap: 9px;
+  text-decoration: none;
+  text-indent: 0;
+  white-space: nowrap;
+}
+/* The mark sat 8px above the row: its own box was centred, but the container it lives
+   in was not, so everything inside it rode high. */
+.op-app-header--start,
+.op-app-header--start .op-app-menu,
+.op-app-header--start .op-logo {
+  display: flex;
+  align-items: center;
+}
+a.op-logo--link:not(.op-logo--icon) {
+  width: 32px;
+  height: 32px;
+  justify-content: center;
+  border-radius: 6px;
+}
+a.op-logo--link:not(.op-logo--icon):hover { background: var(--mp-header-hover, rgba(0, 0, 0, .06)); }
+a.op-logo--link:not(.op-logo--icon)::before {
+  content: "";
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  opacity: .7;
+  background-color: currentColor;
+  -webkit-mask: var(--mp-mark) center / contain no-repeat;
+  mask: var(--mp-mark) center / contain no-repeat;
+}
+/* The name moved to the middle, so the left is the mark alone — it is the home link,
+   and a mark is enough for one. */
+a.op-logo--link:not(.op-logo--icon)::after { content: none; }
+@media screen and (max-width: 850px) {
+  a.op-logo.op-logo--icon {
+    align-items: center;
+    background: none !important;
+    color: var(--header-item-font-color);
+    display: flex;
+    font-size: 0;
+    justify-content: center;
+    padding-left: 0;
+    text-decoration: none;
+    text-indent: 0;
+    width: 30px;
+  }
+  a.op-logo.op-logo--icon::after {
+    content: "";
+    width: 21px;
+    height: 21px;
+    background-color: currentColor;
+    -webkit-mask: var(--mp-mark) center / contain no-repeat;
+    mask: var(--mp-mark) center / contain no-repeat;
+  }
+}
+
+/* Brian 2026-09-22：顶栏那个模块启动器去掉。侧栏已经收到几条，它打开的是同一批入口
+   的另一份拷贝。logo 和它在同一个容器里，所以只能精确点名这个按钮——藏掉容器会把
+   logo 一起藏了。 */
+.op-app-menu_drop-left > button.op-app-header--primer-button { display: none; }
+
+/* Appearance control ------------------------------------------------------------ */
+
+/* The row was a white slab with one saturated green pill shouting from it. In the
+   references Brian pointed at the bar carries no colour at all — the only coloured thing
+   is the avatar. So the header's own buttons become quiet icon buttons, sized and spaced
+   alike, and the accent is left to the page below. */
+.op-app-header { height: 52px; min-height: 52px; }
+.op-app-header--end { gap: 2px; }
+.op-app-header--end .Button--primary,
+.op-app-header--end .op-app-header--primer-button.Button--primary {
+  color: var(--header-item-font-color) !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+.op-app-header--end .Button--primary:hover {
+  background: var(--mp-header-hover, rgba(0, 0, 0, .06)) !important;
+}
+/* ⛔ 帮助菜单去掉：点开全是 openproject.org 的文档、订阅、报价和社区外链，对这个
+   实例一条都用不上。和之前删掉那一串侧栏入口是同一个理由。 */
+.op-app-header--end action-menu:has(#op-app-header--help-menu-button) { display: none; }
+
+/* One set of icon buttons rather than three kinds sitting next to each other.
+   Except a visitor's 登录 ▾, which is words and a caret: squeezed into 32px they spilled
+   out of the button and 5px past the window, the sideways scroll Brian saw on the login
+   page at full screen. The caret is what tells it apart — the avatar and the + button
+   carry a Button-label too, only with a picture in it, so a label is not the sign. */
+.op-app-header--end .Button--invisible:not(:has(.Button-trailingVisual)),
+.op-app-header--end .Button--primary:not(:has(.Button-trailingVisual)) {
+  width: 32px;
+  height: 32px;
+  padding: 0 !important;
+  border-radius: 6px;
+}
+.op-app-header--end .Button--invisible:has(.Button-trailingVisual) {
+  height: 32px;
+  padding: 0 8px !important;
+  border-radius: 6px;
+}
+
+/* Brian 2026-09-23：登录页右上角不再放登录入口——整页就是登录表单，那个下拉里是同一
+   张表单的第二份。别的访客页（注册、找回密码）还留着它，那是回登录页的路。 */
+body.controller-account.action-login .op-app-header--end > button.op-app-header--primer-button,
+body.controller-account.action-login .op-app-header--end > dialog-helper { display: none; }
+.op-app-header--end .Button--invisible svg,
+.op-app-header--end .Button--primary svg { opacity: .7; }
+.op-app-header--end .Button--invisible:hover svg,
+.op-app-header--end .Button--primary:hover svg { opacity: 1; }
+.op-app-header--end .op-app-menu--item { padding-left: 0 !important; padding-right: 0 !important; }
+
+.mp-appearance { position: relative; display: flex; align-items: center; }
+
+.mp-appearance-button {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; cursor: pointer;
+  color: var(--header-item-font-color, #1f2328);
+  background: none; border: 0; border-radius: 6px;
+}
+.mp-appearance-button:hover { background: var(--mp-header-hover, rgba(0, 0, 0, .06)); }
+.mp-appearance-button[aria-expanded="true"] { background: var(--mp-header-hover, rgba(0, 0, 0, .06)); }
+.mp-appearance-button svg { display: block; }
+
+.mp-appearance-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 30;
+  min-width: 168px; padding: 4px; margin: 0; list-style: none;
+  background: var(--bgColor-default, #ffffff);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .28);
+}
+.mp-appearance-menu[hidden] { display: none; }
+
+.mp-appearance-option {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 6px 8px; cursor: pointer; text-align: left; font-size: 14px;
+  color: var(--fgColor-default, #1f2328);
+  background: none; border: 0; border-radius: 6px;
+}
+.mp-appearance-option:hover { background: var(--bgColor-neutral-muted, #eff1f3); }
+/* The tick keeps its width when it is not shown, so the labels do not shift as the
+   selection moves between rows. */
+.mp-appearance-check { width: 16px; flex: 0 0 16px; color: var(--fgColor-accent, #0969da); }
+.mp-appearance-option[aria-checked="false"] .mp-appearance-check { visibility: hidden; }
+
+/* Login ------------------------------------------------------------------------- */
+
+/* Built to the shape Brian pointed at: one rounded card split in two, the form on the
+   left and a picture bleeding to the edge on the right. The previous attempt was a small
+   centred box, which is not that.
+   The artwork is /evaproject/login-art.png; the gradient beneath it stays as the fallback,
+   so a missing file degrades to a deliberate panel rather than to a hole. */
+
+/* #content-body, not #content: making the outer one a flex container turned the inner
+   block into a flex item, which shrank to its content and took the card down to 264px
+   with it — one character per line. */
+/* Centred in the space under the top bar (Brian 2026-09-23, #189: it sat about 50px high,
+   from a 5vh top padding and the form's own top margin stacking up). Auto margins rather
+   than align-items: center, because they fall to zero when the card is taller than the
+   space, so a short window scrolls to the rest of it instead of cutting its top off. */
+body.action-login #content { padding-top: 0; }
+body.action-login #content-body {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 24px 0;
+  box-sizing: border-box;
+}
+
+body.action-login #login-form.form.-bordered {
+  position: relative;
+  flex: 0 0 auto;
+  width: min(900px, 100%);
+  min-height: 470px;
+  margin: auto 0;
+  /* The picture's width is a length, not a percentage: percentage padding resolves
+     against the *containing block*, not the element, so `calc(48% + 44px)` measured 48%
+     of the page and left the form 134px to live in. */
+  --mp-login-art-w: 420px;
+  padding: 44px calc(var(--mp-login-art-w) + 44px) 40px 44px;
+  overflow: hidden;
+  background: var(--bgColor-default, #ffffff);
+  border: 1px solid var(--borderColor-muted, rgba(61, 68, 77, .35));
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .08), 0 24px 60px rgba(0, 0, 0, .14);
+}
+body[data-color-mode="dark"].action-login #login-form.form.-bordered {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .6), 0 24px 60px rgba(0, 0, 0, .55);
+}
+
+/* Taken out of the flow rather than given a grid column: spanning the rows made the
+   picture's height push the form's own rows apart, which left a hole between the title
+   and the first field. Out of flow it simply matches the card. */
+body.action-login #login-form::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--mp-login-art-w);
+  background-image:
+    url("/evaproject/login-art.png?v=96b910bf97"),
+    radial-gradient(120% 90% at 78% 28%, rgba(255, 176, 92, .32) 0%, rgba(255, 138, 46, .10) 26%, transparent 58%),
+    radial-gradient(90% 70% at 22% 82%, rgba(88, 118, 178, .30) 0%, transparent 62%),
+    linear-gradient(155deg, #12161d 0%, #080a0f 55%, #04050a 100%);
+  background-size: cover, auto, auto, auto;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+body.action-login #login-form h1 {
+  margin: 0;
+  font-family: var(--mp-font-display, Georgia, serif);
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  color: var(--fgColor-default, #1f2328);
+}
+/* A rule under the heading of a card this size is a line looking for a job. */
+body.action-login #login-form .form--separator { display: none; }
+body.action-login #login-form h1::after {
+  content: "用 Eva Project 帐号继续";
+  display: block;
+  margin: 8px 0 26px;
+  font-family: var(--mp-font-sans, system-ui, sans-serif);
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fgColor-muted, #59636e);
+}
+
+/* The stock form leaves the <form> inline and pins the input wrapper to an "auto" width
+   utility, so the fields sized themselves to nothing inside a column this wide. */
+body.action-login #login-form form { display: block; }
+body.action-login #login-form .FormControl,
+body.action-login #login-form .FormControl-input-wrap,
+body.action-login #login-form .FormControl-input { width: 100%; max-width: none; }
+body.action-login #login-form .FormControl { margin-bottom: 16px; }
+body.action-login #login-form .FormControl-checkbox-wrap { margin: 4px 0 22px; }
+
+/* Primer's layout utilities are declared !important, so the row the submit sits in
+   cannot be turned into a column without matching that. Stacking is what lets the button
+   span the card: in a row its wrapper is only as wide as the label inside it. */
+body.action-login #login-form .flex-justify-between {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 16px;
+}
+/* The one primary button, which the login button set first and every page's primary
+   action shares (#197). Its colours, --mp-primary-*, are the theme's: see theme.css. */
+
+/* The stock submit is OpenProject's green, which is its brand accent and not this page's
+   — against the artwork it was the one thing fighting for attention. Primer's
+   Button--primary sets its own colours, so these have to match that weight. */
+body.action-login #login-form button[type="submit"] {
+  width: 100%;
+  justify-content: center;
+  padding-top: 7px;
+  padding-bottom: 7px;
+  color: var(--mp-primary-fg) !important;
+  background: var(--mp-primary-bg) !important;
+  border-color: var(--mp-primary-bg) !important;
+  box-shadow: none !important;
+}
+body.action-login #login-form button[type="submit"]:hover { background: var(--mp-primary-bg-hover) !important; }
+
+/* The two links under it are the quiet way out, not a second call to action. */
+body.action-login #login-form .Link {
+  color: var(--fgColor-muted, #59636e) !important;
+}
+body.action-login #login-form .Link:hover { text-decoration: underline; }
+body.action-login #login-form .flex-justify-between > div:last-child { text-align: center; }
+body.action-login #login-form .Link { font-size: 13px; }
+
+/* One column on a narrow screen: a 460px-tall picture above a form is a scroll, not a
+   welcome. */
+@media (max-width: 860px) {
+  body.action-login #login-form.form.-bordered {
+    width: min(420px, 100%);
+    min-height: 0;
+    padding: 36px 32px 32px !important;
+  }
+  body.action-login #login-form::after { display: none; }
+}
+/* A phone keeps the form at the top, where the keyboard leaves it in view. OpenProject's
+   phone layout also runs the content area past the bottom of the screen, which would put
+   a centred card low. */
+@media (max-width: 680px) {
+  body.action-login #login-form.form.-bordered { margin: 0 0 auto; }
+}
+/* On a phone the card keeps a margin from the screen's edges (EVAPROJECT-REQ-20260928-002),
+   and its fields are 16px on a touch screen: iOS zooms into a smaller one when it takes
+   focus and leaves the page zoomed. */
+@media (max-width: 543px) {
+  body.action-login #content-body { padding-left: 14px; padding-right: 14px; }
+  body.action-login #login-form.form.-bordered { padding: 30px 22px 26px !important; }
+}
+@media (pointer: coarse) {
+  body.action-login #login-form .FormControl-input { font-size: 16px; }
+}
+
+/* Phones (EVAPROJECT-REQ-20260928-002) ---------------------------------------------- */
+
+/* Two house marks side by side below 850px: OpenProject swaps its logo for the icon at that
+   width, and the flex rule above for centring the mark kept the logo showing as well. */
+@media screen and (max-width: 850px) {
+  .op-app-header--start div.op-logo { display: none; }
+}
+/* OpenProject pins the bar to the top on a phone and moves the page down to make room for
+   it. The `position: relative` above, there for the centred name, put the bar back into
+   the page's flow as well, so every page carried an empty band under the bar and the
+   window itself scrolled by the bar's height. The name is not shown this narrow. */
+@media screen and (max-width: 543px) {
+  .op-app-header { position: fixed; }
+}
+/* On a phone OpenProject keeps the navigation button pinned at the top left of the content
+   while the page scrolls under it: its own pages give it a sticky heading to sit in, ours
+   have none, so it floated over the list. On our pages it scrolls away with the heading
+   row it sits beside, which each page leaves room for. */
+@media screen and (max-width: 543px) {
+  #content-body:has(> .mp-requirements, > .mp-handoff, > .mp-dashboard, > .mp-search-page, > .mp-tokens, > .mp-backup) {
+    position: relative;
+  }
+}
+
+/* Keep the login card and its product credit together in the available height. */
+body.action-login #content-body {
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+body.action-login #login-form.form.-bordered { margin: auto 0 0; }
+.eva-login-footer {
+  flex: 0 0 auto;
+  width: min(900px, 100%);
+  margin: 0 0 auto;
+  padding: 0 16px;
+  box-sizing: border-box;
+  text-align: center;
+  color: var(--fgColor-muted, #737373);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.eva-login-footer p { margin: 0; }
+.eva-login-footer .eva-login-credit { margin-top: 4px; font-size: 12px; }
+@media (max-width: 600px) {
+  body.action-login #login-form.form.-bordered { margin: 0; }
+}

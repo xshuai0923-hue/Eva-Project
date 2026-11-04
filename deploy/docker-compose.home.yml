@@ -1,0 +1,5 @@
+# Small, independent home-server instance alongside the existing M-Project VM.
+services:
+  web:
+    environment:
+      OPENPROJECT_WEB__WORKERS: "1"

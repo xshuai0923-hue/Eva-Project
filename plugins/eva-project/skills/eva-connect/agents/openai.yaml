@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eva 接入"
+  short_description: "Connect and verify your Eva Project account"
+  default_prompt: "用 $eva-connect 连接并核对我的 Eva 项目。"

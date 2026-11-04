@@ -1,0 +1,333 @@
+/* Home page (#185). Runs inside OpenProject's layout, so there is no header or navigation
+   here. The chrome takes its colours from OpenProject's Primer variables so the page
+   follows the instance theme. The two series are coral and teal from the Claude palette
+   the theme uses (#203), stepped for each mode until the dataviz validator passed all six
+   checks against the theme's canvases, #faf9f5 and #181715. */
+
+.mp-dashboard { padding: 12px 16px 32px; }
+.hidden-navigation .mp-dashboard { padding-left: 44px; }
+
+.mp-dashboard {
+  --mp-border: var(--borderColor-default, #d1d9e0);
+  --mp-border-muted: var(--borderColor-muted, #d1d9e0b3);
+  --mp-muted: var(--fgColor-muted, #59636e);
+  --mp-ink: var(--fgColor-default, #1f2328);
+  --mp-accent: var(--fgColor-accent, #0969da);
+  --mp-accent-soft: var(--bgColor-accent-muted, #ddf4ff);
+  --mp-surface: var(--bgColor-default, #ffffff);
+  --mp-wash: var(--bgColor-neutral-muted, rgba(129, 139, 152, .12));
+  /* States in the palette's own hues, what is in progress as the theme draws what is
+     current (#246); each falls back to what it was for the high-contrast themes. */
+  --mp-warn: var(--mp-hue-amber, var(--fgColor-attention, #9a6700));
+  --mp-warn-soft: color-mix(in srgb, var(--mp-warn) 12%, transparent);
+  --mp-ok: var(--mp-hue-green, var(--fgColor-success, #1a7f37));
+  --mp-bad: var(--mp-hue-red, var(--fgColor-danger, #d1242f));
+  --mp-current-fg: var(--mp-selected-fg, var(--mp-accent));
+  --mp-current-bg: var(--mp-selected-bg, var(--mp-accent-soft));
+  --mp-current-border: var(--mp-selected-border, var(--mp-accent));
+  --mp-radius: var(--borderRadius-medium, 6px);
+  --mp-series-1: #c2683f;
+  --mp-series-2: #00897b;
+}
+body[data-color-mode="dark"] .mp-dashboard {
+  --mp-series-1: #d07a58;
+  --mp-series-2: #20a38d;
+}
+
+.mp-dashboard .mp-body { display: flex; flex-direction: column; gap: 14px; container-type: inline-size; }
+.mp-dashboard button { font: inherit; color: inherit; }
+.mp-dashboard .mp-empty { margin: 0; font-size: 13px; color: var(--mp-muted); }
+
+/* Loading (#209): a ring in the accent turning beside a word — in the numbers' place on the
+   first load, and small where 更新于 stands while a new answer is fetched. */
+.mp-dashboard .mp-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 72px 0; color: var(--mp-muted); font-size: 13px;
+}
+.mp-dashboard .mp-dash-fresh .mp-loading { padding: 0; gap: 6px; font-size: inherit; }
+.mp-dashboard .mp-loading-ring {
+  width: 22px; height: 22px; flex: none; box-sizing: border-box; border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--mp-accent) 22%, transparent);
+  border-top-color: var(--mp-accent);
+  animation: mp-loading-turn .8s linear infinite;
+}
+.mp-dashboard .mp-dash-fresh .mp-loading-ring { width: 12px; height: 12px; border-width: 1.5px; }
+@keyframes mp-loading-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mp-dashboard .mp-loading-ring { animation: none; }
+}
+
+.mp-dashboard .mp-notice {
+  padding: 8px 12px; margin-bottom: 12px; border-radius: var(--mp-radius);
+  background: var(--mp-wash); color: var(--mp-ink); border: 1px solid var(--mp-border);
+}
+.mp-dashboard .mp-notice.mp-is-error {
+  background: transparent; color: var(--mp-bad);
+  border-color: color-mix(in srgb, var(--mp-bad) 45%, var(--mp-border));
+}
+
+/* A new answer is on its way: the old one stays put, dimmed, rather than blinking out. */
+.mp-dashboard .mp-is-loading .mp-dash-stat-value,
+.mp-dashboard .mp-is-loading .mp-dash-panel > :not(.mp-dash-panel-head),
+.mp-dashboard .mp-is-loading .mp-dash-chip-count { opacity: 0.5; transition: opacity .15s; }
+
+/* Filters: project and period ------------------------------------------------- */
+
+.mp-dashboard .mp-dash-filters {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+}
+.mp-dashboard .mp-dash-projects { display: flex; flex-wrap: wrap; gap: 8px; }
+.mp-dashboard .mp-dash-chip {
+  display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; cursor: pointer;
+  font-size: 14px; background: var(--mp-surface);
+  border: 1px solid var(--mp-border); border-radius: 999px;
+}
+.mp-dashboard .mp-dash-chip:hover { border-color: var(--mp-accent); }
+/* Selected is marked in the theme's card and ink, not the button's terracotta (#203). */
+.mp-dashboard .mp-dash-chip.mp-is-active {
+  background: var(--mp-selected-bg, var(--mp-accent-soft));
+  border-color: var(--mp-selected-border, var(--mp-accent));
+  color: var(--mp-selected-fg, var(--mp-accent));
+  font-weight: 600;
+}
+.mp-dashboard .mp-dash-chip-count { font-size: 12px; font-weight: 400; color: var(--mp-muted); }
+.mp-dashboard .mp-dash-chip.mp-is-active .mp-dash-chip-count { color: inherit; }
+
+.mp-dashboard .mp-dash-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.mp-dashboard .mp-dash-period { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mp-dashboard .mp-dash-segment {
+  display: inline-flex; border: 1px solid var(--mp-border); border-radius: var(--mp-radius); overflow: hidden;
+}
+.mp-dashboard .mp-dash-segment button {
+  padding: 4px 14px; font-size: 14px; cursor: pointer; background: var(--mp-surface);
+  border: 0; border-left: 1px solid var(--mp-border);
+}
+.mp-dashboard .mp-dash-segment button:first-child { border-left: 0; }
+.mp-dashboard .mp-dash-segment button.mp-is-active {
+  background: var(--mp-selected-bg, var(--mp-accent-soft)); color: var(--mp-selected-fg, var(--mp-accent)); font-weight: 600;
+}
+.mp-dashboard .mp-dash-stepper { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+/* The theme's secondary button (#203): cream, ink and a hairline in light; #252320 in dark. */
+.mp-dashboard .mp-dash-step {
+  width: 28px; height: 28px; font-size: 16px; line-height: 1; cursor: pointer;
+  color: var(--mp-button-fg, inherit); background: var(--mp-button-bg, var(--mp-surface));
+  border: 1px solid var(--mp-button-border, var(--mp-border)); border-radius: var(--mp-radius);
+}
+.mp-dashboard .mp-dash-step:hover:not(:disabled) {
+  background: var(--mp-button-hover, var(--mp-surface)); border-color: var(--mp-button-border, var(--mp-accent));
+}
+.mp-dashboard .mp-dash-step:disabled { opacity: 0.4; cursor: default; }
+.mp-dashboard .mp-dash-period-label { min-width: 10em; text-align: center; font-size: 14px; }
+.mp-dashboard .mp-dash-today {
+  padding: 0 4px; font-size: 13px; white-space: nowrap; cursor: pointer;
+  background: none; border: 0; color: var(--mp-accent);
+}
+
+/* Sections -------------------------------------------------------------------- */
+
+.mp-dashboard .mp-dash-section { display: flex; flex-direction: column; gap: 12px; }
+.mp-dashboard .mp-dash-section + .mp-dash-section {
+  margin-top: 10px; padding-top: 18px; border-top: 1px solid var(--mp-border-muted);
+}
+.mp-dashboard .mp-dash-section-head {
+  display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 16px;
+}
+/* In the theme's serif, regular weight, as code.claude.com sets its titles. */
+.mp-dashboard .mp-dash-section-title {
+  margin: 0; font-family: var(--mp-font-display, serif); font-size: 21px; font-weight: 400; letter-spacing: -0.01em;
+}
+.mp-dashboard .mp-dash-section-note { margin: 2px 0 0; font-size: 12.5px; color: var(--mp-muted); }
+
+.mp-dashboard .mp-dash-fresh { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--mp-muted); }
+.mp-dashboard .mp-dash-refresh,
+.mp-dashboard .mp-dash-toggle {
+  padding: 3px 10px; font-size: 12.5px; cursor: pointer; color: var(--mp-button-fg, var(--mp-ink));
+  background: var(--mp-button-bg, var(--mp-surface)); border: 1px solid var(--mp-button-border, var(--mp-border));
+  border-radius: var(--mp-radius);
+}
+.mp-dashboard .mp-dash-refresh:hover:not(:disabled),
+.mp-dashboard .mp-dash-toggle:hover {
+  background: var(--mp-button-hover, var(--mp-surface)); border-color: var(--mp-button-border, var(--mp-accent));
+}
+.mp-dashboard .mp-dash-refresh:disabled { opacity: 0.5; cursor: default; }
+
+/* Counts ------------------------------------------------------------------------ */
+
+/* Seven across once 已实现待提交 has room; below that two even rows rather than six and a
+   stray one, and two a row on a phone. Measured on the content area, not the window,
+   because the sidebar may or may not be taking part of it. */
+.mp-dashboard .mp-dash-stats { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
+@container (max-width: 880px) {
+  .mp-dashboard .mp-dash-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@container (max-width: 440px) {
+  .mp-dashboard .mp-dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+.mp-dashboard .mp-dash-stat {
+  display: flex; flex-direction: column; gap: 6px; padding: 12px 14px;
+  background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-dashboard .mp-dash-stat-label { font-size: 13px; color: var(--mp-muted); }
+.mp-dashboard .mp-dash-stat-hint { margin-left: 4px; font-size: 12px; }
+.mp-dashboard .mp-dash-stat-value { font-size: 26px; font-weight: 600; line-height: 1.15; }
+
+/* Panels -------------------------------------------------------------------------- */
+
+.mp-dashboard .mp-dash-grid { display: grid; gap: 12px; }
+.mp-dashboard .mp-dash-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mp-dashboard .mp-dash-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@container (max-width: 1100px) {
+  .mp-dashboard .mp-dash-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container (max-width: 640px) {
+  .mp-dashboard .mp-dash-grid-2,
+  .mp-dashboard .mp-dash-grid-4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+.mp-dashboard .mp-dash-panel {
+  display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 14px;
+  background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+.mp-dashboard .mp-dash-panel-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.mp-dashboard .mp-dash-panel-title { flex: 1 1 auto; margin: 0; font-size: 14px; font-weight: 600; }
+.mp-dashboard .mp-dash-panel-count {
+  min-width: 22px; padding: 0 7px; text-align: center; font-size: 12px; font-weight: 600; line-height: 20px;
+  border-radius: 999px; background: var(--mp-wash);
+}
+.mp-dashboard .mp-dash-footnote { margin: 0; font-size: 12px; color: var(--mp-muted); }
+.mp-dashboard .mp-dash-trend-summary { margin: -4px 0 0; font-size: 13px; color: var(--mp-ink); }
+
+/* Lists --------------------------------------------------------------------------- */
+
+.mp-dashboard .mp-dash-list { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.mp-dashboard .mp-dash-list-item {
+  display: flex; flex-direction: column; gap: 3px; padding: 8px 0; border-top: 1px solid var(--mp-border-muted);
+}
+.mp-dashboard .mp-dash-list-item:first-child { padding-top: 0; border-top: 0; }
+.mp-dashboard .mp-dash-list-line { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.mp-dashboard .mp-dash-list-title {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+  font-size: 13.5px; line-height: 1.4; color: var(--mp-ink); text-decoration: none;
+}
+.mp-dashboard .mp-dash-list-title:hover { color: var(--mp-accent); text-decoration: underline; }
+.mp-dashboard .mp-dash-list-meta {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 10px; font-size: 12px; color: var(--mp-muted);
+}
+.mp-dashboard .mp-dash-more { margin: 6px 0 0; font-size: 12px; color: var(--mp-muted); }
+
+.mp-dashboard .mp-dash-pill {
+  flex: none; padding: 0 8px; font-size: 11.5px; line-height: 18px; white-space: nowrap;
+  border: 1px solid currentColor; border-radius: 999px;
+}
+.mp-dashboard .mp-tone-muted { color: var(--mp-muted); }
+.mp-dashboard .mp-tone-accent {
+  color: var(--mp-current-fg); background: var(--mp-current-bg); border-color: var(--mp-current-border);
+}
+.mp-dashboard .mp-tone-attention { color: var(--mp-warn); background: var(--mp-warn-soft); }
+.mp-dashboard .mp-tone-success {
+  color: var(--mp-ok); background: color-mix(in srgb, var(--mp-ok) 12%, transparent);
+}
+
+/* Bars: one series against categories -------------------------------------------- */
+
+.mp-dashboard .mp-dash-bars { display: grid; gap: 4px; }
+.mp-dashboard .mp-dash-bar-row {
+  display: grid; grid-template-columns: 7.5em minmax(0, 1fr); align-items: center; gap: 10px;
+  padding: 3px 6px; border-radius: 4px; outline: none;
+}
+.mp-dashboard .mp-dash-bar-row:hover,
+.mp-dashboard .mp-dash-bar-row:focus-visible { background: var(--mp-wash); }
+.mp-dashboard .mp-dash-bar-label {
+  overflow: hidden; font-size: 13px; color: var(--mp-ink); white-space: nowrap; text-overflow: ellipsis;
+}
+.mp-dashboard .mp-dash-bar-row.mp-is-zero .mp-dash-bar-label { color: var(--mp-muted); }
+.mp-dashboard .mp-dash-bar-track { display: flex; align-items: center; gap: 6px; min-width: 0; }
+/* Square at the baseline, rounded at the value end; the value itself follows the tip. */
+.mp-dashboard .mp-dash-bar {
+  flex: none; height: 12px; width: calc((100% - 3em) * var(--mp-share, 0));
+  background: var(--mp-series-1); border-radius: 0 4px 4px 0;
+}
+.mp-dashboard .mp-dash-bar-value { font-size: 12.5px; color: var(--mp-ink); font-variant-numeric: tabular-nums; }
+.mp-dashboard .mp-dash-bar-row.mp-is-zero .mp-dash-bar-value { color: var(--mp-muted); }
+
+/* Heat table: a count per cell, shaded by how many --------------------------------- */
+
+.mp-dashboard .mp-dash-table-wrap { overflow-x: auto; }
+.mp-dashboard .mp-dash-heat { min-width: 100%; border-collapse: separate; border-spacing: 2px; font-size: 13px; }
+.mp-dashboard .mp-dash-heat th {
+  padding: 4px 8px; text-align: right; font-size: 12.5px; font-weight: 600; color: var(--mp-muted); white-space: nowrap;
+}
+.mp-dashboard .mp-dash-heat thead th:first-child,
+.mp-dashboard .mp-dash-heat tbody th { text-align: left; }
+.mp-dashboard .mp-dash-heat tbody th { font-size: 13px; font-weight: 500; color: var(--mp-ink); }
+.mp-dashboard .mp-dash-heat tbody th.mp-is-unassigned { color: var(--mp-muted); }
+.mp-dashboard .mp-dash-heat td {
+  padding: 6px 8px; text-align: right; color: var(--mp-ink); font-variant-numeric: tabular-nums; border-radius: 4px;
+  background: color-mix(in srgb, var(--mp-series-1) var(--mp-heat, 0%), transparent);
+}
+.mp-dashboard .mp-dash-heat td.mp-is-zero { color: var(--mp-muted); }
+.mp-dashboard .mp-dash-heat-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--mp-muted); }
+.mp-dashboard .mp-dash-heat-ramp {
+  width: 56px; height: 8px; border-radius: 2px;
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--mp-series-1) 5%, transparent),
+    color-mix(in srgb, var(--mp-series-1) 55%, transparent));
+}
+
+/* Trend: created against completed, a period a pair of columns --------------------- */
+
+.mp-dashboard .mp-dash-legend { display: inline-flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--mp-muted); }
+.mp-dashboard .mp-dash-legend-entry { display: inline-flex; align-items: center; gap: 6px; }
+.mp-dashboard .mp-dash-swatch { width: 10px; height: 10px; border-radius: 2px; }
+.mp-dashboard .mp-dash-series-1 { background: var(--mp-series-1); }
+.mp-dashboard .mp-dash-series-2 { background: var(--mp-series-2); }
+
+.mp-dashboard .mp-dash-trend { padding-left: 30px; }
+.mp-dashboard .mp-dash-trend-plot { position: relative; height: 180px; }
+.mp-dashboard .mp-dash-trend-grid { position: absolute; inset: 0; pointer-events: none; }
+.mp-dashboard .mp-dash-trend-tick { position: absolute; left: 0; right: 0; border-top: 1px solid var(--mp-border-muted); }
+.mp-dashboard .mp-dash-trend-tick-label {
+  position: absolute; right: 100%; margin-right: 8px; transform: translateY(-50%);
+  font-size: 11px; color: var(--mp-muted); font-variant-numeric: tabular-nums;
+}
+.mp-dashboard .mp-dash-trend-columns { position: absolute; inset: 0; display: grid; gap: 2px; }
+.mp-dashboard .mp-dash-trend-column {
+  display: flex; align-items: flex-end; justify-content: center; height: 100%; padding: 0;
+  cursor: pointer; background: none; border: 0; border-radius: 4px 4px 0 0; outline: none;
+}
+.mp-dashboard .mp-dash-trend-column:hover,
+.mp-dashboard .mp-dash-trend-column:focus-visible { background: var(--mp-wash); }
+.mp-dashboard .mp-dash-trend-column.mp-is-chosen { background: var(--mp-selected-bg, var(--mp-accent-soft)); }
+.mp-dashboard .mp-dash-trend-bars { display: flex; align-items: flex-end; justify-content: center; gap: 2px; width: 100%; height: 100%; }
+.mp-dashboard .mp-dash-trend-bar { width: min(12px, 40%); border-radius: 4px 4px 0 0; }
+.mp-dashboard .mp-dash-trend-axis {
+  display: grid; gap: 2px; margin-top: 6px; text-align: center;
+  font-size: 11px; color: var(--mp-muted); font-variant-numeric: tabular-nums;
+}
+.mp-dashboard .mp-dash-trend-axis .mp-is-chosen { color: var(--mp-ink); font-weight: 600; }
+@container (max-width: 640px) {
+  .mp-dashboard .mp-dash-trend-axis .mp-is-sparse { visibility: hidden; }
+}
+
+/* Tooltip: the value leads, the name follows ---------------------------------------- */
+
+.mp-dashboard .mp-dash-tip {
+  position: fixed; z-index: 1000; pointer-events: none; display: flex; flex-direction: column; gap: 3px;
+  max-width: 300px; padding: 8px 10px; font-size: 12.5px; color: var(--mp-ink);
+  background: var(--overlay-bgColor, var(--mp-surface)); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+  box-shadow: var(--shadow-floating-small, 0 6px 18px rgba(0, 0, 0, .16));
+}
+.mp-dashboard .mp-dash-tip[hidden] { display: none; }
+.mp-dashboard .mp-dash-tip-row { display: flex; align-items: center; gap: 6px; }
+.mp-dashboard .mp-dash-tip-row strong { font-variant-numeric: tabular-nums; }
+.mp-dashboard .mp-dash-tip-row span { color: var(--mp-muted); }
+.mp-dashboard .mp-dash-key { width: 12px; height: 2px; border-radius: 1px; }
+.mp-dashboard .mp-dash-key-1 { background: var(--mp-series-1); }
+.mp-dashboard .mp-dash-key-2 { background: var(--mp-series-2); }
+
+/* A phone (EVAPROJECT-REQ-20260928-002): OpenProject's own 15px margin is enough, and only
+   the first row moves over for the navigation button at the top left of the content. */
+@media (max-width: 640px) {
+  .mp-dashboard, .hidden-navigation .mp-dashboard { padding: 4px 0 32px; }
+  .hidden-navigation .mp-dashboard .mp-dash-projects::before { content: ""; flex: none; width: 22px; }
+}

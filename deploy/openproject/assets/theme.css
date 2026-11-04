@@ -1,0 +1,353 @@
+/* The instance's look: Claude's palette and type, in light and in dark (Brian 2026-09-23,
+   #203). Colours are the ones getdesign.md lists for Claude's DESIGN.md; the menu follows
+   code.claude.com's sidebar. Loaded on every page, before chrome.css.
+
+   Nothing here styles a module. OpenProject and every page of ours colour themselves from
+   Primer's variables and from OpenProject's own (--main-menu-*, --body-*), so the palette is
+   applied by redefining those, and everything that reads them follows — native pages
+   included, which is what Brian asked for.
+
+   Primer defines them per theme on `[data-color-mode][data-light-theme]` pairs; these rules
+   sit on body with one more selector part so they win without !important. Only the plain
+   light and dark themes are redefined: someone who turns on OpenProject's increased
+   contrast keeps its own, stronger, colours. */
+
+/* Anthropic's own faces are not licensed for use here, so these are open substitutes chosen
+   side by side with them on code.claude.com: Instrument Sans for Anthropic Sans, Libre Caslon
+   Text for the serif headings, JetBrains Mono for code. SIL Open Font License, Latin subsets
+   only; Chinese falls through to the system's own faces. Carried as files, because this
+   instance runs on a network with no internet. */
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/evaproject/fonts/InstrumentSans-Variable-latin.woff2?v=6219bc4bfd") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Libre Caslon Text";
+  src: url("/evaproject/fonts/LibreCaslonText-Regular-latin.woff2?v=1471d8a9f2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Libre Caslon Text";
+  src: url("/evaproject/fonts/LibreCaslonText-Bold-latin.woff2?v=7dc7dc90fb") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/evaproject/fonts/JetBrainsMono-Variable-latin.woff2?v=2c32b9b3ee") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Faces, and the primary button — for every theme, the increased-contrast ones included,
+   which keep the black-and-white button they had. The serif carries page titles only, as
+   on code.claude.com; a Chinese title falls to the system's serif beside it. */
+body {
+  --mp-font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  --mp-font-display: "Libre Caslon Text", "Songti SC", "STSong", "Noto Serif SC",
+    "Source Han Serif SC", Georgia, serif;
+  --mp-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --body-font-family: var(--mp-font-sans);
+  --fontStack-sansSerif: var(--mp-font-sans);
+  --fontStack-sansSerifDisplay: var(--mp-font-sans);
+  --fontStack-system: var(--mp-font-sans);
+  --fontStack-monospace: var(--mp-font-mono);
+  /* Primer composes its type shorthands on :root, where a var() is resolved against :root's
+     own stacks — so redefining a stack on body alone left every component that uses a
+     shorthand in the system face. Composed again here, they pick the faces up. */
+  --text-body-shorthand-large: var(--text-body-weight) var(--text-body-size-large) / var(--text-body-lineHeight-large) var(--fontStack-sansSerif);
+  --text-body-shorthand-medium: var(--text-body-weight) var(--text-body-size-medium) / var(--text-body-lineHeight-medium) var(--fontStack-sansSerif);
+  --text-body-shorthand-small: var(--text-body-weight) var(--text-body-size-small) / var(--text-body-lineHeight-small) var(--fontStack-sansSerif);
+  --text-caption-shorthand: var(--text-caption-weight) var(--text-caption-size) / var(--text-caption-lineHeight) var(--fontStack-sansSerif);
+  --text-codeBlock-shorthand: var(--text-codeBlock-weight) var(--text-codeBlock-size) / var(--text-codeBlock-lineHeight) var(--fontStack-monospace);
+  --text-codeInline-shorthand: var(--text-codeInline-weight) var(--text-codeInline-size) var(--fontStack-monospace);
+  --text-display-shorthand: var(--text-display-weight) var(--text-display-size) / var(--text-display-lineHeight) var(--fontStack-sansSerifDisplay);
+  --text-subtitle-shorthand: var(--text-subtitle-weight) var(--text-subtitle-size) / var(--text-subtitle-lineHeight) var(--fontStack-sansSerifDisplay);
+  --text-title-shorthand-large: var(--text-title-weight-large) var(--text-title-size-large) / var(--text-title-lineHeight-large) var(--fontStack-sansSerifDisplay);
+  --text-title-shorthand-medium: var(--text-title-weight-medium) var(--text-title-size-medium) / var(--text-title-lineHeight-medium) var(--fontStack-sansSerifDisplay);
+  --text-title-shorthand-small: var(--text-title-weight-small) var(--text-title-size-small) / var(--text-title-lineHeight-small) var(--fontStack-sansSerif);
+
+  --mp-primary-bg: #1a1d21;
+  --mp-primary-bg-hover: #2b3038;
+  --mp-primary-fg: #ffffff;
+}
+body[data-color-mode="dark"] {
+  --mp-primary-bg: #e6edf3;
+  --mp-primary-bg-hover: #ffffff;
+  --mp-primary-fg: #0d1117;
+}
+
+/* The palette, by name. Light is DESIGN.md as written. Dark is its darkest tone, ink
+   #141413, as the page, with its dark surfaces #181715 / #1f1e1b / #252320 stepping up from
+   it: the first dark version stood on #181715 and read brown and muddy beside
+   code.claude.com's near-black (Brian 2026-09-23: 主要是深色).
+
+   Buttons are DESIGN.md's button sheet in both modes (Brian: 按钮无论深色还是浅色应该用
+   陶土色): primary terracotta #cc785c with white text, #a9583e pressed, #e6dfd8 disabled;
+   secondary cream with ink text and a hairline outline, and on dark #252320 with light text.
+   Terracotta also marks links and focus. What is selected is marked the way code.claude.com
+   marks it: ink on the card surface in light, and in dark its warm tan #d4a27f on a faint
+   tint of itself — the sidebar item Brian pointed at. Links in light use terracotta's
+   pressed shade, which stays readable as text on cream (4.8:1; #cc785c itself is 3.1:1). */
+body[data-color-mode="light"][data-light-theme="light"] {
+  --mp-theme-canvas: #faf9f5;
+  --mp-theme-raised: #faf9f5;
+  --mp-theme-soft: #f5f0e8;
+  --mp-theme-card: #efe9de;
+  --mp-theme-strong: #e8e0d2;
+  --mp-theme-overlay: #faf9f5;
+  --mp-theme-inset: #f5f0e8;
+  --mp-theme-ink: #141413;
+  --mp-theme-body: #3d3d3a;
+  --mp-theme-muted: #6c6a64;
+  --mp-theme-line: #e6dfd8;
+  --mp-theme-hairline: #ebe6df;
+  --mp-theme-control-line: color-mix(in srgb, #8e8b82 35%, #faf9f5);
+  --mp-theme-wash: color-mix(in srgb, #8e8b82 14%, transparent);
+  --mp-theme-hover: #f5f0e8;
+  --mp-theme-accent: #cc785c;
+  --mp-theme-accent-text: #a9583e;
+  --mp-theme-accent-soft: color-mix(in srgb, #cc785c 15%, transparent);
+  --mp-theme-on-accent: #ffffff;
+  --mp-theme-accent-pressed: #a9583e;
+  --mp-theme-accent-disabled: #e6dfd8;
+  --mp-theme-on-disabled: #6c6a64;
+  --mp-theme-button-bg: #faf9f5;
+  --mp-theme-button-fg: #141413;
+  --mp-theme-button-border: #e6dfd8;
+  --mp-theme-button-hover: #f5f0e8;
+  --mp-theme-menu-fg: #3d3d3a;
+  --mp-theme-selected-bg: #efe9de;
+  --mp-theme-selected-fg: #141413;
+  --mp-theme-selected-border: #e8e0d2;
+  --mp-theme-avatar-bg: #e8e0d2;
+  --mp-theme-avatar-fg: #141413;
+  /* What prose marks (#208). Each hue is dark enough to read as text on its own tint. */
+  --mp-theme-blue: #2d62b0;
+  --mp-theme-green: #276b44;
+  --mp-theme-purple: #7047c2;
+  --mp-theme-amber: #8f5a00;
+  --mp-theme-red: #b3261e;
+  --mp-theme-code: #9a4c33;
+  --mp-theme-code-bg: #f0ebe3;
+  --mp-theme-code-line: #e6dfd8;
+}
+body[data-color-mode="dark"][data-dark-theme="dark"] {
+  --mp-theme-canvas: #141413;
+  --mp-theme-raised: #181715;
+  --mp-theme-soft: #1f1e1b;
+  --mp-theme-card: #252320;
+  --mp-theme-strong: #2e2c28;
+  --mp-theme-overlay: #1f1e1b;
+  --mp-theme-inset: #0f0f0e;
+  --mp-theme-ink: #faf9f5;
+  --mp-theme-body: #e8e6e0;
+  --mp-theme-muted: #a09d96;
+  --mp-theme-line: color-mix(in srgb, #faf9f5 12%, #141413);
+  --mp-theme-hairline: color-mix(in srgb, #faf9f5 8%, #141413);
+  --mp-theme-control-line: color-mix(in srgb, #faf9f5 16%, #141413);
+  --mp-theme-wash: color-mix(in srgb, #faf9f5 7%, transparent);
+  --mp-theme-hover: color-mix(in srgb, #faf9f5 5%, #141413);
+  --mp-theme-accent: #cc785c;
+  --mp-theme-accent-text: #cc785c;
+  --mp-theme-accent-soft: color-mix(in srgb, #cc785c 16%, transparent);
+  --mp-theme-on-accent: #ffffff;
+  --mp-theme-accent-pressed: #a9583e;
+  --mp-theme-accent-disabled: #2e2c28;
+  --mp-theme-on-disabled: #8e8b82;
+  --mp-theme-button-bg: #252320;
+  --mp-theme-button-fg: #faf9f5;
+  --mp-theme-button-border: color-mix(in srgb, #faf9f5 12%, #252320);
+  --mp-theme-button-hover: #2e2c28;
+  --mp-theme-menu-fg: #a09d96;
+  --mp-theme-selected-bg: color-mix(in srgb, #d4a27f 10%, transparent);
+  --mp-theme-selected-fg: #d4a27f;
+  --mp-theme-selected-border: color-mix(in srgb, #d4a27f 35%, transparent);
+  --mp-theme-avatar-bg: #2e2c28;
+  --mp-theme-avatar-fg: #faf9f5;
+  --mp-theme-blue: #8ab4f8;
+  --mp-theme-green: #7fcf9f;
+  --mp-theme-purple: #bba3f4;
+  --mp-theme-amber: #e3b341;
+  --mp-theme-red: #f2877e;
+  --mp-theme-code: #e08b6d;
+  --mp-theme-code-bg: #252320;
+  --mp-theme-code-line: color-mix(in srgb, #faf9f5 10%, #252320);
+}
+
+/* The palette, put where OpenProject and Primer read it. */
+body[data-color-mode="light"][data-light-theme="light"],
+body[data-color-mode="dark"][data-dark-theme="dark"] {
+  --bgColor-default: var(--mp-theme-canvas);
+  --bgColor-muted: var(--mp-theme-soft);
+  --bgColor-inset: var(--mp-theme-inset);
+  --bgColor-neutral-muted: var(--mp-theme-wash);
+  --bgColor-accent-emphasis: var(--mp-theme-accent);
+  --bgColor-accent-muted: var(--mp-theme-accent-soft);
+  --fgColor-default: var(--mp-theme-ink);
+  --fgColor-muted: var(--mp-theme-muted);
+  --fgColor-accent: var(--mp-theme-accent-text);
+  --fgColor-link: var(--mp-theme-accent-text);
+  --borderColor-default: var(--mp-theme-line);
+  --borderColor-muted: var(--mp-theme-hairline);
+  --borderColor-accent-emphasis: var(--mp-theme-accent);
+  --borderColor-accent-muted: color-mix(in srgb, var(--mp-theme-accent) 40%, transparent);
+  --focus-outlineColor: var(--mp-theme-accent);
+  --selection-bgColor: color-mix(in srgb, var(--mp-theme-accent) 28%, transparent);
+  --underlineNav-borderColor-active: var(--mp-theme-selected-fg);
+  --overlay-bgColor: var(--mp-theme-overlay);
+  --control-bgColor-rest: var(--mp-theme-canvas);
+  --control-bgColor-hover: var(--mp-theme-hover);
+  --control-borderColor-rest: var(--mp-theme-control-line);
+  --control-checked-bgColor-rest: var(--mp-theme-accent);
+  --control-checked-bgColor-hover: var(--mp-theme-accent-pressed);
+  --control-checked-bgColor-active: var(--mp-theme-accent-pressed);
+  --control-checked-borderColor-rest: var(--mp-theme-accent);
+  --control-checked-fgColor-rest: var(--mp-theme-on-accent);
+  --button-default-bgColor-rest: var(--mp-theme-button-bg);
+  --button-default-bgColor-hover: var(--mp-theme-button-hover);
+  --button-default-bgColor-active: var(--mp-theme-button-hover);
+  --button-default-fgColor-rest: var(--mp-theme-button-fg);
+  --button-default-borderColor-rest: var(--mp-theme-button-border);
+  --button-default-borderColor-hover: var(--mp-theme-button-border);
+  --button-primary-bgColor-rest: var(--mp-theme-accent);
+  --button-primary-bgColor-hover: var(--mp-theme-accent-pressed);
+  --button-primary-bgColor-active: var(--mp-theme-accent-pressed);
+  --button-primary-bgColor-disabled: var(--mp-theme-accent-disabled);
+  --button-primary-borderColor-rest: transparent;
+  --button-primary-borderColor-hover: transparent;
+  --button-primary-borderColor-disabled: transparent;
+  --button-primary-fgColor-rest: var(--mp-theme-on-accent);
+  --button-primary-fgColor-disabled: var(--mp-theme-on-disabled);
+  --button-primary-iconColor-rest: var(--mp-theme-on-accent);
+  --borderRadius-medium: 8px;
+
+  --body-background: var(--mp-theme-canvas);
+  --body-font-color: var(--mp-theme-ink);
+  --accent-color: var(--mp-theme-accent-text);
+  --primary-button-color: var(--mp-theme-accent);
+  --font-color-on-primary: var(--mp-theme-on-accent);
+  --breadcrumb-font-color: var(--mp-theme-muted);
+  --drop-down-hover-bg-color: var(--mp-theme-hover);
+  --drop-down-selected-bg-color: var(--mp-theme-card);
+  --main-menu-bg-color: var(--mp-theme-canvas);
+  --main-menu-border-color: var(--mp-theme-hairline);
+  --main-menu-font-color: var(--mp-theme-menu-fg);
+  --main-menu-selected-font-color: var(--mp-theme-selected-fg);
+  --main-menu-bg-selected-background: var(--mp-theme-selected-bg);
+  --main-menu-bg-selected-border: transparent;
+  --main-menu-hover-border-color: transparent;
+  /* Declared on :root from the variables above, so resolved there before any of them was
+     ours: the native 创建 button stayed OpenProject green. Declared again, they follow. */
+  --borderRadius-default: var(--borderRadius-medium);
+  --main-menu-resizer-color: var(--mp-theme-hairline);
+  --control-checked-color: var(--mp-theme-accent);
+  --content-icon-color: var(--mp-theme-accent-text);
+  --list-item-hover--color: var(--mp-theme-accent-text);
+  --box-list-item-bg-color: var(--mp-theme-canvas);
+  --button--background-color: var(--mp-theme-button-bg);
+  --button--background-hover-color: var(--mp-theme-button-hover);
+  --button--font-color: var(--mp-theme-button-fg);
+  --button--active-border-color: var(--mp-theme-button-border);
+  --button--primary-background-color: var(--mp-theme-accent);
+  --button--primary-background-hover-color: var(--mp-theme-accent-pressed);
+  --button--primary-background-active-color: var(--mp-theme-accent-pressed);
+  --button--primary-background-disabled-color: var(--mp-theme-accent-disabled);
+  --button--primary-border-color: var(--mp-theme-accent);
+  --button--primary-border-disabled-color: var(--mp-theme-accent-disabled);
+  --button--primary-font-color: var(--mp-theme-on-accent);
+
+  --mp-primary-bg: var(--mp-theme-accent);
+  --mp-primary-bg-hover: var(--mp-theme-accent-pressed);
+  --mp-primary-fg: var(--mp-theme-on-accent);
+  /* For our pages. Each use falls back to what it had before, for the themes left alone. */
+  --mp-selected-bg: var(--mp-theme-selected-bg);
+  --mp-selected-fg: var(--mp-theme-selected-fg);
+  --mp-selected-border: var(--mp-theme-selected-border);
+  --mp-button-bg: var(--mp-theme-button-bg);
+  --mp-button-fg: var(--mp-theme-button-fg);
+  --mp-button-border: var(--mp-theme-button-border);
+  --mp-button-hover: var(--mp-theme-button-hover);
+  --mp-avatar-bg: var(--mp-theme-avatar-bg);
+  --mp-avatar-fg: var(--mp-theme-avatar-fg);
+  /* The script M in the top bar and the site icon (Brian 2026-09-23). */
+  --mp-brand: var(--mp-theme-accent);
+  /* What prose marks (Brian 2026-09-24, #208): requirement numbers and 注记 blocks in blue,
+     code in terracotta, and the other highlight blocks in their own hues. The accent is
+     terracotta here, so blue has to be named rather than taken from --fgColor-accent. */
+  --mp-hue-blue: var(--mp-theme-blue);
+  --mp-hue-green: var(--mp-theme-green);
+  --mp-hue-purple: var(--mp-theme-purple);
+  --mp-hue-amber: var(--mp-theme-amber);
+  --mp-hue-red: var(--mp-theme-red);
+  --mp-code-fg: var(--mp-theme-code);
+  --mp-code-bg: var(--mp-theme-code-bg);
+  --mp-code-line: var(--mp-theme-code-line);
+
+  color: var(--mp-theme-ink);
+  background: var(--mp-theme-canvas);
+}
+
+/* The sidebar, drawn like code.claude.com's: rounded rows, and the current one on a tinted
+   block — ink on the card in light, tan on a faint tan in dark. OpenProject marks the current
+   row with a 5px bar down its left edge, declared !important; in the same translucent tint as
+   the block it painted a second, darker strip there, so it is taken off with !important too.
+   A real medium weight marks the row: the hairline-of-shadow trick the docs use for Latin
+   thickens Chinese glyphs into bold. */
+body[data-color-mode="light"][data-light-theme="light"] #main-menu,
+body[data-color-mode="dark"][data-dark-theme="dark"] #main-menu {
+  --mp-menu-row: 36px;
+}
+body[data-color-mode="light"][data-light-theme="light"] #main-menu .op-menu--item-action,
+body[data-color-mode="dark"][data-dark-theme="dark"] #main-menu .op-menu--item-action {
+  height: var(--mp-menu-row);
+  border-left-width: 0 !important;
+  border-radius: 12px;
+  padding-left: 16px;
+  color: var(--mp-theme-menu-fg);
+}
+body[data-color-mode="light"][data-light-theme="light"] #main-menu .op-menu--item-action:hover,
+body[data-color-mode="dark"][data-dark-theme="dark"] #main-menu .op-menu--item-action:hover {
+  background: var(--mp-theme-hover);
+  color: var(--mp-theme-ink);
+}
+body[data-color-mode="light"][data-light-theme="light"] #main-menu .op-menu--item-action.selected,
+body[data-color-mode="dark"][data-dark-theme="dark"] #main-menu .op-menu--item-action.selected {
+  background: var(--mp-theme-selected-bg);
+  color: var(--mp-theme-selected-fg);
+  font-weight: 500;
+}
+body[data-color-mode="light"][data-light-theme="light"] #main-menu .op-menu--item-action svg,
+body[data-color-mode="dark"][data-dark-theme="dark"] #main-menu .op-menu--item-action svg {
+  color: inherit;
+  opacity: .8;
+}
+
+/* A person with no picture is drawn in initials on a colour hashed from their name, which
+   came out a light green against the cream (Brian 2026-09-23). OpenProject puts that colour
+   in the element's own style attribute, hence !important. */
+body[data-color-mode="light"][data-light-theme="light"] .op-avatar--fallback,
+body[data-color-mode="dark"][data-dark-theme="dark"] .op-avatar--fallback {
+  background: var(--mp-theme-avatar-bg) !important;
+  color: var(--mp-theme-avatar-fg) !important;
+}
+
+/* Titles in the serif, as the display face is used there: regular weight, drawn a little
+   tighter. OpenProject's own pages name themselves in a PageHeader. */
+body .PageHeader-title {
+  font-family: var(--mp-font-display);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}

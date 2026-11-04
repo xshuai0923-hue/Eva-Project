@@ -1,0 +1,220 @@
+/* The backup page (#237). Runs inside OpenProject's layout like the user management page,
+   and follows the instance's look (#203, theme.css): surfaces, text and buttons from the
+   variables the theme redefines, states in the palette's own hues. Primer's success and
+   danger colours are not part of that palette — a saturated green and red were the first
+   thing Brian saw on this page (2026-09-24) — and what is in progress is marked the way
+   the theme marks what is current, not in the buttons' terracotta. */
+
+.mp-backup { padding: 12px 16px; max-width: 1100px; }
+.hidden-navigation .mp-backup { padding-left: 44px; }
+
+/* The dialogs are appended to body, outside .mp-backup, so the two share one set. Each
+   falls back to what it had before, for the high-contrast themes theme.css leaves alone. */
+.mp-backup,
+.mp-backup-dialog {
+  --mp-border: var(--borderColor-default, #d1d9e0);
+  --mp-muted: var(--fgColor-muted, #59636e);
+  --mp-surface: var(--bgColor-default, #ffffff);
+  --mp-inset: var(--bgColor-inset, #f6f8fa);
+  --mp-accent: var(--fgColor-accent, #0969da);
+  --mp-wash: var(--bgColor-neutral-muted, #eff1f3);
+  --mp-current-fg: var(--mp-selected-fg, var(--fgColor-accent, #0969da));
+  --mp-current-bg: var(--mp-selected-bg, var(--bgColor-accent-muted, #ddf4ff));
+  --mp-current-border: var(--mp-selected-border, var(--borderColor-accent-emphasis, #0969da));
+  --mp-ok: var(--mp-hue-green, var(--fgColor-success, #1a7f37));
+  --mp-bad: var(--mp-hue-red, var(--fgColor-danger, #d1242f));
+  --mp-warn: var(--mp-hue-amber, var(--fgColor-attention, #9a6700));
+  --mp-radius: var(--borderRadius-medium, 6px);
+}
+
+.mp-backup .mp-notice {
+  padding: 8px 12px; margin-bottom: 12px; border-radius: var(--mp-radius);
+  background: var(--mp-wash); color: var(--fgColor-default, #1f2328); border: 1px solid var(--mp-border);
+}
+.mp-backup .mp-notice.mp-is-error {
+  background: transparent; color: var(--mp-bad);
+  border-color: color-mix(in srgb, var(--mp-bad) 45%, var(--mp-border));
+}
+
+/* Header ----------------------------------------------------------------------- */
+
+.mp-backup .mp-header { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.mp-backup .mp-header-title {
+  font-family: var(--mp-font-display, serif); font-size: 20px; font-weight: 400; letter-spacing: -0.01em;
+}
+.mp-backup .mp-count { color: var(--mp-muted); font-size: 13px; }
+.mp-backup .mp-header-actions { margin-left: auto; display: flex; gap: 8px; }
+
+.mp-backup .mp-action,
+.mp-backup-dialog .mp-action {
+  display: inline-block; padding: 4px 10px; cursor: pointer; font-size: 14px; line-height: 20px;
+  text-decoration: none; white-space: nowrap;
+  color: var(--mp-button-fg, var(--mp-muted)); background: var(--mp-button-bg, var(--mp-surface));
+  border: 1px solid var(--mp-button-border, var(--mp-border)); border-radius: var(--mp-radius);
+}
+.mp-backup .mp-action:hover:not(:disabled),
+.mp-backup-dialog .mp-action:hover:not(:disabled) {
+  background: var(--mp-button-hover, var(--mp-surface)); text-decoration: none;
+  border-color: var(--mp-button-border, var(--mp-accent)); color: var(--mp-button-fg, var(--mp-accent));
+}
+.mp-backup .mp-action:disabled,
+.mp-backup-dialog .mp-action:disabled { opacity: .45; cursor: not-allowed; }
+/* The shared primary button; its colours are the theme's (theme.css). */
+.mp-backup .mp-action.mp-is-primary,
+.mp-backup-dialog .mp-action.mp-is-primary {
+  color: var(--mp-primary-fg); background: var(--mp-primary-bg); border-color: var(--mp-primary-bg);
+}
+.mp-backup .mp-action.mp-is-primary:hover:not(:disabled),
+.mp-backup-dialog .mp-action.mp-is-primary:hover:not(:disabled) {
+  color: var(--mp-primary-fg); background: var(--mp-primary-bg-hover); border-color: var(--mp-primary-bg);
+}
+.mp-backup .mp-action.mp-is-danger:hover:not(:disabled) { border-color: var(--mp-bad); color: var(--mp-bad); }
+
+/* Schedule and job panels ---------------------------------------------------------- */
+
+.mp-backup .mp-backup-panel {
+  margin-bottom: 14px; padding: 12px 14px;
+  border: 1px solid var(--mp-border); border-radius: var(--mp-radius); background: var(--mp-surface);
+}
+.mp-backup .mp-backup-schedule { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mp-backup .mp-backup-summary { font-size: 15px; }
+.mp-backup .mp-backup-schedule .mp-action { margin-left: auto; }
+.mp-backup .mp-backup-meta { margin-top: 6px; color: var(--mp-muted); font-size: 13px; }
+.mp-backup .mp-backup-meta.mp-is-error { color: var(--mp-bad); }
+
+/* A job in progress is what is current on the page, marked as the theme marks it. */
+.mp-backup .mp-backup-job.mp-is-running { border-color: var(--mp-current-border); background: var(--mp-current-bg); }
+.mp-backup .mp-backup-job.mp-is-failed { border-color: color-mix(in srgb, var(--mp-bad) 45%, var(--mp-border)); }
+.mp-backup .mp-backup-job-head { display: flex; align-items: center; gap: 10px; }
+.mp-backup .mp-backup-job-head .mp-action { margin-left: auto; }
+.mp-backup .mp-backup-job-title { font-weight: 600; }
+.mp-backup .mp-backup-job.mp-is-running .mp-backup-job-title { color: var(--mp-current-fg); }
+.mp-backup .mp-backup-job.mp-is-failed .mp-backup-job-title { color: var(--mp-bad); }
+.mp-backup .mp-backup-job-error { margin: 8px 0 0; color: var(--mp-bad); }
+.mp-backup .mp-backup-job-warning { margin: 8px 0 0; color: var(--mp-warn); }
+.mp-backup .mp-backup-job-note { margin: 8px 0 0; color: var(--mp-muted); font-size: 13px; }
+.mp-backup .mp-backup-job > .mp-action { margin-top: 10px; }
+
+.mp-backup .mp-backup-steps {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 0; padding: 0; list-style: none; font-size: 13px;
+}
+.mp-backup .mp-step { display: flex; align-items: center; gap: 6px; color: var(--mp-muted); }
+.mp-backup .mp-step::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%; flex: none;
+  border: 1.5px solid currentColor; box-sizing: border-box;
+}
+/* Done steps stay quiet: muted words, a dot in the palette's green. */
+.mp-backup .mp-step.mp-is-done::before { background: var(--mp-ok); border-color: var(--mp-ok); }
+.mp-backup .mp-step.mp-is-running { color: var(--mp-current-fg); font-weight: 600; }
+.mp-backup .mp-step.mp-is-running::before { animation: mp-backup-pulse 1s ease-in-out infinite alternate; background: currentColor; }
+.mp-backup .mp-step.mp-is-failed { color: var(--mp-bad); font-weight: 600; }
+.mp-backup .mp-step.mp-is-failed::before { background: currentColor; border-radius: 1px; }
+@keyframes mp-backup-pulse { from { opacity: .35; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .mp-backup .mp-step.mp-is-running::before { animation: none; }
+}
+
+/* Table ------------------------------------------------------------------------ */
+
+.mp-backup .mp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.mp-backup .mp-table th {
+  text-align: left; font-size: 13px; color: var(--mp-muted); font-weight: 600;
+  padding: 6px 8px; border-bottom: 1px solid var(--mp-border); white-space: nowrap;
+}
+.mp-backup .mp-table td { padding: 8px; vertical-align: middle; border-bottom: 1px solid var(--mp-border); }
+.mp-backup .mp-row:hover { background: var(--mp-inset); }
+.mp-backup .mp-backup-when { font-weight: 600; white-space: nowrap; }
+.mp-backup .mp-backup-name {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px; color: var(--mp-muted);
+}
+.mp-backup .mp-when { color: var(--mp-muted); font-size: 13px; white-space: nowrap; }
+.mp-backup .mp-when.mp-is-error { color: var(--mp-bad); }
+.mp-backup .mp-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+
+/* On is shown as the theme shows what is selected; off is a plain wash. */
+.mp-backup .mp-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid transparent;
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.mp-backup .mp-badge.mp-is-active {
+  background: var(--mp-current-bg); color: var(--mp-current-fg); border-color: var(--mp-current-border);
+}
+.mp-backup .mp-badge.mp-is-off { background: var(--mp-wash); color: var(--mp-muted); }
+
+.mp-backup .mp-empty { color: var(--mp-muted); margin: 0; padding: 16px 0; }
+.mp-backup .mp-backup-footnote { color: var(--mp-muted); font-size: 12px; margin: 12px 0 0; }
+
+/* Loading, the same ring as the other module pages. */
+.mp-backup .mp-loading { display: flex; align-items: center; gap: 8px; color: var(--mp-muted); padding: 16px 0; }
+.mp-backup .mp-loading-ring {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid var(--mp-border); border-top-color: var(--mp-accent);
+  animation: mp-backup-spin .8s linear infinite;
+}
+@keyframes mp-backup-spin { to { transform: rotate(360deg); } }
+
+/* Dialogs ---------------------------------------------------------------------- */
+
+.mp-backup-dialog {
+  width: min(460px, calc(100vw - 32px)); padding: 18px 20px;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--bgColor-default, #ffffff);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 8px;
+}
+.mp-backup-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.mp-backup-dialog .mp-dialog-title { font-size: 16px; font-weight: 600; margin: 0 0 8px; }
+.mp-backup-dialog .mp-dialog-hint { color: var(--fgColor-muted, #59636e); font-size: 13px; margin: 0 0 8px; }
+.mp-backup-dialog form { margin-top: 12px; }
+.mp-backup-dialog .mp-field { display: block; margin-bottom: 12px; font-size: 13px; color: var(--fgColor-muted, #59636e); }
+.mp-backup-dialog .mp-field input {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; font-size: 14px;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--bgColor-default, #ffffff);
+  border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 6px;
+}
+.mp-backup-dialog .mp-field input:focus { outline: 2px solid var(--fgColor-accent, #0969da); outline-offset: -1px; }
+.mp-backup-dialog .mp-check { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; }
+/* A native checkbox is the system's blue unless told; the theme's checked controls are
+   terracotta (--control-checked-bgColor-rest). */
+.mp-backup-dialog .mp-check input { accent-color: var(--control-checked-bgColor-rest, auto); width: 15px; height: 15px; }
+.mp-backup-dialog .mp-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+@media (max-width: 720px) {
+  .mp-backup .mp-col-size, .mp-backup .mp-col-content { display: none; }
+  .mp-backup .mp-header { flex-wrap: wrap; }
+  .mp-backup .mp-header-actions { margin-left: 0; width: 100%; }
+  .mp-backup .mp-row-actions { flex-wrap: wrap; }
+}
+
+/* A phone (EVAPROJECT-REQ-20260928-002). Each backup becomes a card: when and where from,
+   its size and what it holds (which the narrow table had dropped, an incomplete backup's
+   warning with it), then its buttons on a line of their own rather than folded under each
+   other.
+   OpenProject's own 15px margin is enough, and only the heading row moves over for the
+   navigation button at the top left of the content. */
+@media (max-width: 640px) {
+  .mp-backup, .hidden-navigation .mp-backup { padding: 4px 0 24px; }
+  .hidden-navigation .mp-backup .mp-header::before { content: ""; flex: none; width: 18px; }
+  .mp-backup .mp-table, .mp-backup .mp-table tbody { display: block; }
+  .mp-backup .mp-table thead { display: none; }
+  .mp-backup .mp-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: start;
+    padding: 12px 0; border-bottom: 1px solid var(--mp-border);
+  }
+  .mp-backup .mp-row > td { display: block; padding: 0; border: 0; }
+  .mp-backup .mp-row > td:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .mp-backup .mp-row > td:nth-child(2) { grid-column: 2; grid-row: 1; font-size: 13px; color: var(--mp-muted); }
+  .mp-backup .mp-row > td.mp-col-size { grid-column: 1; grid-row: 2; }
+  .mp-backup .mp-row > td.mp-col-content { grid-column: 2; grid-row: 2; white-space: normal; text-align: right; }
+  .mp-backup .mp-row > td:last-child { grid-column: 1 / -1; grid-row: 3; }
+  .mp-backup .mp-row-actions { justify-content: flex-start; flex-wrap: wrap; }
+  .mp-backup .mp-action { padding: 7px 14px; }
+}
+
+/* iOS zooms the page into any field set smaller than 16px when it takes focus. */
+@media (pointer: coarse) {
+  .mp-backup-dialog .mp-field input,
+  .mp-backup-dialog select { font-size: 16px; }
+}

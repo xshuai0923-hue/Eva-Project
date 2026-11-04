@@ -1,0 +1,170 @@
+/* MCP user and token management. Runs inside OpenProject's layout, so there is no header
+   or navigation here, and every colour comes from the variables the theme redefines — the
+   page this replaces carried its own palette, which is why it stopped matching the
+   instance the first time the theme moved. States take the palette's own hues (#203): an
+   active account is drawn as the theme draws what is current, and a failure in its red,
+   not in Primer's success green and danger red, which the theme leaves as they are
+   (Brian 2026-09-24, #246). */
+
+.mp-tokens { padding: 12px 16px; }
+.hidden-navigation .mp-tokens { padding-left: 44px; }
+
+/* The dialogs are appended to body, outside .mp-tokens, so what the page and its dialogs
+   share names both: their buttons had no style at all there (Brian 2026-09-23, #197). */
+.mp-tokens,
+.mp-tokens-dialog {
+  --mp-border: var(--borderColor-default, #d1d9e0);
+  --mp-muted: var(--fgColor-muted, #59636e);
+  --mp-accent: var(--fgColor-accent, #0969da);
+  --mp-surface: var(--bgColor-default, #ffffff);
+  --mp-inset: var(--bgColor-inset, #f6f8fa);
+  --mp-neutral-soft: var(--bgColor-neutral-muted, #eff1f3);
+  /* Each falls back to what it was, for the high-contrast themes theme.css leaves alone. */
+  --mp-danger: var(--mp-hue-red, var(--fgColor-danger, #d1242f));
+  --mp-current-fg: var(--mp-selected-fg, var(--fgColor-success, #1a7f37));
+  --mp-current-bg: var(--mp-selected-bg, var(--bgColor-success-muted, #dafbe1));
+  --mp-current-border: var(--mp-selected-border, transparent);
+  --mp-radius: var(--borderRadius-medium, 6px);
+}
+
+.mp-tokens .mp-notice {
+  padding: 8px 12px; margin-bottom: 12px; border-radius: var(--mp-radius);
+  background: var(--mp-neutral-soft); color: var(--fgColor-default, #1f2328); border: 1px solid var(--mp-border);
+}
+.mp-tokens .mp-notice.mp-is-error {
+  background: transparent; color: var(--mp-danger);
+  border-color: color-mix(in srgb, var(--mp-danger) 45%, var(--mp-border));
+}
+
+/* Header ----------------------------------------------------------------------- */
+
+.mp-tokens .mp-header { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.mp-tokens .mp-header-title {
+  font-family: var(--mp-font-display, serif); font-size: 20px; font-weight: 400; letter-spacing: -0.01em;
+}
+.mp-tokens .mp-count { color: var(--mp-muted); font-size: 13px; }
+.mp-tokens .mp-header-actions { margin-left: auto; display: flex; gap: 8px; }
+
+.mp-tokens .mp-action,
+.mp-tokens-dialog .mp-action {
+  display: inline-block; padding: 4px 10px; cursor: pointer; font-size: 14px;
+  color: var(--mp-button-fg, var(--mp-muted)); background: var(--mp-button-bg, var(--mp-surface));
+  border: 1px solid var(--mp-button-border, var(--mp-border)); border-radius: var(--mp-radius);
+}
+.mp-tokens .mp-action:hover:not(:disabled),
+.mp-tokens-dialog .mp-action:hover:not(:disabled) {
+  background: var(--mp-button-hover, var(--mp-surface));
+  border-color: var(--mp-button-border, var(--mp-accent)); color: var(--mp-button-fg, var(--mp-accent));
+}
+.mp-tokens .mp-action:disabled,
+.mp-tokens-dialog .mp-action:disabled { opacity: .45; cursor: not-allowed; }
+/* The shared primary button; its colours are the theme's (theme.css). */
+.mp-tokens .mp-action.mp-is-primary,
+.mp-tokens-dialog .mp-action.mp-is-primary {
+  color: var(--mp-primary-fg); background: var(--mp-primary-bg); border-color: var(--mp-primary-bg);
+}
+.mp-tokens .mp-action.mp-is-primary:hover:not(:disabled),
+.mp-tokens-dialog .mp-action.mp-is-primary:hover:not(:disabled) {
+  color: var(--mp-primary-fg); background: var(--mp-primary-bg-hover); border-color: var(--mp-primary-bg);
+}
+.mp-tokens .mp-action.mp-is-danger:hover:not(:disabled) { border-color: var(--mp-danger); color: var(--mp-danger); }
+
+/* Table ------------------------------------------------------------------------ */
+
+.mp-tokens .mp-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.mp-tokens .mp-table th {
+  text-align: left; font-size: 13px; color: var(--mp-muted); font-weight: 600;
+  padding: 6px 8px; border-bottom: 1px solid var(--mp-border); white-space: nowrap;
+}
+.mp-tokens .mp-table td { padding: 8px; vertical-align: middle; border-bottom: 1px solid var(--mp-border); }
+.mp-tokens .mp-row:hover { background: var(--mp-inset); }
+.mp-tokens .mp-user-name { font-weight: 600; }
+.mp-tokens .mp-user-id,
+.mp-tokens .mp-fingerprint {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px; color: var(--mp-muted);
+}
+.mp-tokens .mp-when { color: var(--mp-muted); font-size: 13px; white-space: nowrap; }
+.mp-tokens .mp-row-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+
+.mp-tokens .mp-badge {
+  display: inline-block; padding: 1px 8px; border-radius: 999px; border: 1px solid transparent;
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+}
+.mp-tokens .mp-badge.mp-is-active {
+  background: var(--mp-current-bg); color: var(--mp-current-fg); border-color: var(--mp-current-border);
+}
+.mp-tokens .mp-badge.mp-is-revoked { background: var(--mp-neutral-soft); color: var(--mp-muted); }
+
+.mp-tokens .mp-empty { color: var(--mp-muted); margin: 0; padding: 16px 0; }
+
+/* Dialogs ---------------------------------------------------------------------- */
+
+.mp-tokens-dialog {
+  width: min(440px, calc(100vw - 32px)); padding: 18px 20px;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--bgColor-default, #ffffff);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+  border-radius: 8px;
+}
+.mp-tokens-dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.mp-tokens-dialog .mp-dialog-title { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+.mp-tokens-dialog .mp-dialog-hint { color: var(--fgColor-muted, #59636e); font-size: 13px; margin: 0 0 14px; }
+.mp-tokens-dialog .mp-field { display: block; margin-bottom: 12px; font-size: 13px; color: var(--fgColor-muted, #59636e); }
+.mp-tokens-dialog .mp-field input, .mp-tokens-dialog .mp-field select {
+  display: block; width: 100%; margin-top: 4px; padding: 6px 8px; font-size: 14px;
+  color: var(--fgColor-default, #1f2328);
+  background: var(--bgColor-default, #ffffff);
+  border: 1px solid var(--borderColor-default, #d1d9e0); border-radius: 6px;
+}
+.mp-tokens-dialog .mp-field input:focus, .mp-tokens-dialog .mp-field select:focus { outline: 2px solid var(--fgColor-accent, #0969da); outline-offset: -1px; }
+.mp-tokens-dialog .mp-dialog-error { color: var(--fgColor-danger, #b42318); font-size: 13px; }
+.mp-tokens-dialog .mp-dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* The token is shown once and never again, so it gets room to be read and copied
+   rather than being squeezed onto one line that scrolls. */
+.mp-tokens-dialog .mp-token-box {
+  display: flex; gap: 8px; align-items: center;
+  padding: 10px 12px; border-radius: 6px;
+  background: var(--bgColor-inset, #f6f8fa);
+  border: 1px solid var(--borderColor-default, #d1d9e0);
+}
+.mp-tokens-dialog .mp-token-value {
+  flex: 1; min-width: 0; word-break: break-all; font-size: 13px;
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+@media (max-width: 720px) {
+  .mp-tokens .mp-col-fingerprint, .mp-tokens .mp-col-when { display: none; }
+  .mp-tokens .mp-header { flex-wrap: wrap; }
+  .mp-tokens .mp-header-actions { margin-left: 0; width: 100%; }
+}
+
+/* A phone (EVAPROJECT-REQ-20260928-002). The table left 角色 a character a line and the
+   buttons folded in two; each account becomes a card instead: name and state, then the
+   role, then its buttons. OpenProject's own 15px margin is enough, and only the heading
+   row moves over for the navigation button at the top left of the content. */
+@media (max-width: 640px) {
+  .mp-tokens, .hidden-navigation .mp-tokens { padding: 4px 0 24px; }
+  .hidden-navigation .mp-tokens .mp-header::before { content: ""; flex: none; width: 18px; }
+  .mp-tokens .mp-table, .mp-tokens .mp-table tbody { display: block; }
+  .mp-tokens .mp-table thead { display: none; }
+  .mp-tokens .mp-row {
+    display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid var(--mp-border);
+  }
+  .mp-tokens .mp-row > td { display: block; padding: 0; border: 0; }
+  .mp-tokens .mp-row > td.mp-col-fingerprint, .mp-tokens .mp-row > td.mp-col-when { display: none; }
+  .mp-tokens .mp-row > td:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .mp-tokens .mp-row > td:nth-child(2) { grid-column: 1; grid-row: 2; font-size: 13px; color: var(--mp-muted); }
+  .mp-tokens .mp-row > td:nth-child(3) { grid-column: 2; grid-row: 1; }
+  .mp-tokens .mp-row > td.mp-col-account { grid-column: 1 / -1; grid-row: 3; font-size: 13px; }
+  .mp-tokens .mp-row > td:last-child { grid-column: 1 / -1; grid-row: 4; padding-top: 6px; }
+  .mp-tokens .mp-row-actions { justify-content: flex-start; flex-wrap: wrap; }
+  .mp-tokens .mp-action { padding: 7px 14px; }
+}
+
+/* iOS zooms the page into any field set smaller than 16px when it takes focus. */
+@media (pointer: coarse) {
+  .mp-tokens-dialog .mp-field input, .mp-tokens-dialog .mp-field select { font-size: 16px; }
+}

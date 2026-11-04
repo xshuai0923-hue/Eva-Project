@@ -1,0 +1,111 @@
+/* Prose shared by the module pages: highlight blocks, lists, tables, code and rules, and
+   inline bold, code and links. Unscoped on purpose — the colour variables are declared by whichever module root the
+   prose sits inside, so the same markup follows each page's palette without a copy per
+   page. Loaded next to handoff.css and requirements.css. */
+
+.mp-prose { white-space: pre-wrap; }
+.mp-prose + .mp-prose { margin-top: 8px; }
+.mp-prose strong, .mp-callout-body strong { font-weight: 600; }
+
+/* Highlight blocks, drawn as a tinted box in the type's own colour, text included (Brian
+   2026-09-24, #208: 图三). Each type only sets --mp-callout; the tint and the outline are
+   mixed from it. The hues are the theme's (theme.css), Primer's where the theme leaves
+   them alone. */
+.mp-callout {
+  margin: 10px 0; padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--mp-callout) 38%, transparent);
+  border-radius: var(--mp-radius, 8px);
+  background: color-mix(in srgb, var(--mp-callout) 9%, transparent);
+  color: var(--mp-callout);
+}
+.mp-callout:first-child { margin-top: 6px; }
+.mp-callout:last-child { margin-bottom: 0; }
+.mp-callout + .mp-callout { margin-top: 8px; }
+.mp-callout-label { font-weight: 600; font-size: 13px; }
+.mp-callout-body { white-space: pre-wrap; }
+.mp-callout-label + .mp-callout-body { margin-top: 3px; }
+.mp-prose strong, .mp-callout-body strong { font-weight: 600; }
+.mp-callout-note      { --mp-callout: var(--mp-hue-blue, var(--fgColor-accent, #0969da)); }
+.mp-callout-tip       { --mp-callout: var(--mp-hue-green, var(--fgColor-success, #1a7f37)); }
+.mp-callout-important { --mp-callout: var(--mp-hue-purple, var(--fgColor-done, #8250df)); }
+.mp-callout-warning   { --mp-callout: var(--mp-hue-amber, var(--fgColor-attention, #9a6700)); }
+.mp-callout-caution   { --mp-callout: var(--mp-hue-red, var(--fgColor-danger, #d1242f)); }
+
+/* What the text names, in two colours that tell apart (#208): code — anything one would
+   type or look up in a repository — in terracotta monospace on a quiet chip (图二), and a
+   requirement or handoff named in blue. */
+.mp-code {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 0.88em;
+  padding: 0.08em 0.4em; border-radius: 5px;
+  color: var(--mp-code-fg, inherit);
+  background: var(--mp-code-bg, var(--mp-inset));
+  border: 1px solid var(--mp-code-line, var(--mp-border));
+  white-space: normal; word-break: break-word;
+}
+.mp-mention {
+  padding: 0.05em 0.4em; border-radius: 5px; font-weight: 600; white-space: nowrap;
+  color: var(--mp-hue-blue, var(--fgColor-accent, #0969da));
+  background: color-mix(in srgb, var(--mp-hue-blue, var(--fgColor-accent, #0969da)) 14%, transparent);
+}
+
+/* A requirement's body is a whole document, so its headings have to out-rank the 14px
+   body text they sit above -- flat 13px left 「Agent 理解」 and 「验收条件」 reading as
+   just another paragraph. Sized by level, which proseNodes maps ## -> h4, ### -> h5,
+   #### -> h6; the tag carries the level so the class alone stays the shared shape. */
+.mp-prose-heading {
+  font-weight: 600; line-height: 1.35; margin: 18px 0 6px;
+  color: var(--fgColor-default, #1f2328);
+}
+h4.mp-prose-heading { font-size: 17px; }
+h5.mp-prose-heading { font-size: 15px; }
+h6.mp-prose-heading { font-size: 13.5px; color: var(--mp-muted); }
+.mp-prose-heading:first-child { margin-top: 0; }
+
+/* A quote is the user's own words -- 用户原文 in a requirement, the quoted instruction in
+   a handoff. Set apart, but deliberately not faded: it is the most authoritative text on
+   the page, not an aside. */
+.mp-quote {
+  margin: 10px 0; padding: 7px 12px;
+  border-left: 3px solid var(--mp-accent);
+  border-radius: 0 var(--mp-radius) var(--mp-radius) 0;
+  background: var(--mp-inset); color: var(--fgColor-default, #1f2328);
+  white-space: pre-wrap;
+  /* OpenProject italicises blockquotes. Chinese has no italic to speak of, so the browser
+     slants the glyphs itself and the user's own words come out the hardest line to read
+     on the page. Upright, set apart by the bar and the fill instead. */
+  font-style: normal;
+}
+.mp-quote:first-child { margin-top: 0; }
+.mp-quote:last-child { margin-bottom: 0; }
+
+/* Lists, tables, code blocks, rules and links, as a body carries them (#267). A list item
+   keeps its own line breaks as a paragraph does; a task item shows its box in place of
+   the bullet. */
+.mp-list { margin: 6px 0; padding-left: 1.6em; }
+.mp-list .mp-list { margin: 3px 0; }
+.mp-list li { white-space: pre-wrap; }
+.mp-list li + li { margin-top: 3px; }
+.mp-list li.mp-task { list-style: none; }
+.mp-task-box { display: inline-block; width: 1.4em; margin-left: -1.4em; color: var(--mp-muted); }
+
+.mp-table-scroll { margin: 8px 0; overflow-x: auto; }
+.mp-prose-table { border-collapse: collapse; font-size: 13px; line-height: 1.5; }
+.mp-prose-table th, .mp-prose-table td {
+  padding: 5px 9px; text-align: left; vertical-align: top;
+  border: 1px solid var(--mp-border);
+}
+.mp-prose-table th { font-weight: 600; background: var(--mp-inset); }
+
+.mp-code-block {
+  margin: 8px 0; padding: 8px 10px;
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12.5px; line-height: 1.5;
+  color: var(--fgColor-default, #1f2328); background: var(--mp-code-bg, var(--mp-inset));
+  border: 1px solid var(--mp-code-line, var(--mp-border)); border-radius: var(--mp-radius, 6px);
+  white-space: pre-wrap; word-break: break-word;
+}
+.mp-code-block code { font: inherit; color: inherit; background: none; padding: 0; border: 0; }
+
+.mp-rule { margin: 14px 0; border: 0; border-top: 1px solid var(--mp-border); }
+
+/* Links in the theme's link colour, terracotta (#203). */
+.mp-link { color: var(--fgColor-accent, #0969da); text-decoration: underline; text-underline-offset: 2px; }

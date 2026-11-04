@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eva 接手"
+  short_description: "Resume an Eva handoff with verified project context"
+  default_prompt: "用 $eva-resume 接手指定交接。"

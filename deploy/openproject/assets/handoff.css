@@ -1,0 +1,243 @@
+/* Handoff module content. The page runs inside OpenProject's own layout, so there is no
+   header, logo or navigation here: the top bar and the project side menu are the real
+   ones. Colours come from the variables the theme redefines (#203, theme.css), so the
+   module follows the instance instead of carrying a second palette. States take the
+   palette's own hues rather than Primer's success and attention colours, which the theme
+   leaves as they are. As on the requirement pool and in search, the handoff someone is
+   working on is drawn as the theme draws what is current and the one waiting for someone
+   in amber; terracotta is for buttons, links and focus (Brian 2026-09-24/25, #246). */
+
+/* With the project navigation collapsed, OpenProject leaves its expand arrow floating
+   over the very top-left of the content area — right where a module's first heading
+   sits. Clear it rather than letting the two overlap. */
+.mp-handoff { padding: 12px 16px; }
+.hidden-navigation .mp-handoff { padding-left: 44px; }
+
+.mp-handoff {
+  --mp-border: var(--borderColor-default, #d1d9e0);
+  --mp-muted: var(--fgColor-muted, #59636e);
+  --mp-accent: var(--fgColor-accent, #0969da);
+  --mp-accent-soft: var(--bgColor-accent-muted, #ddf4ff);
+  --mp-surface: var(--bgColor-default, #ffffff);
+  --mp-inset: var(--bgColor-inset, #f6f8fa);
+  --mp-wash: var(--bgColor-neutral-muted, #eff1f3);
+  /* Each falls back to what it was, for the high-contrast themes theme.css leaves alone. */
+  --mp-warn: var(--mp-hue-amber, var(--fgColor-attention, #9a6700));
+  --mp-warn-soft: color-mix(in srgb, var(--mp-warn) 12%, transparent);
+  --mp-ok: var(--mp-hue-green, var(--fgColor-success, #1a7f37));
+  --mp-ok-soft: color-mix(in srgb, var(--mp-ok) 12%, transparent);
+  --mp-bad: var(--mp-hue-red, var(--fgColor-danger, #d1242f));
+  --mp-current-fg: var(--mp-selected-fg, var(--mp-accent));
+  --mp-current-bg: var(--mp-selected-bg, var(--mp-accent-soft));
+  --mp-current-border: var(--mp-selected-border, var(--mp-accent));
+  --mp-radius: var(--borderRadius-medium, 6px);
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) { .mp-handoff { grid-template-columns: 1fr; } }
+
+.mp-handoff .mp-notice {
+  grid-column: 1 / -1;
+  padding: 8px 12px; border-radius: var(--mp-radius);
+  background: var(--mp-wash); color: var(--fgColor-default, #1f2328);
+  border: 1px solid var(--mp-border);
+}
+.mp-handoff .mp-notice.mp-is-error {
+  background: transparent; color: var(--mp-bad);
+  border-color: color-mix(in srgb, var(--mp-bad) 45%, var(--mp-border));
+}
+
+.mp-handoff .mp-filters { display: flex; gap: 6px; margin-bottom: 10px; }
+.mp-handoff .mp-filter {
+  flex: 1; padding: 5px 4px; cursor: pointer; color: var(--mp-muted);
+  background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+}
+/* Selected is marked in the theme's card and ink, not the button's terracotta (#203). */
+.mp-handoff .mp-filter.mp-is-active {
+  background: var(--mp-selected-bg, var(--mp-accent-soft));
+  color: var(--mp-selected-fg, var(--mp-accent));
+  border-color: var(--mp-selected-border, var(--mp-accent));
+}
+
+.mp-handoff .mp-list { display: flex; flex-direction: column; gap: 8px; }
+/* prose.css gives its own lists (#267) the same class name, and with it an indent that
+   pushed the cards 1.6em in from the tabs above them. */
+.mp-handoff > aside > .mp-list { margin: 0; padding-left: 0; }
+/* The card is a button, and Safari on iOS draws a button's text in the system blue unless
+   it is told a colour: every title in the list looked like a link. */
+.mp-handoff .mp-card {
+  width: 100%; text-align: left; cursor: pointer; color: inherit;
+  background: var(--mp-surface); border: 1px solid var(--mp-border);
+  border-radius: var(--mp-radius); padding: 10px 12px;
+}
+.mp-handoff .mp-card:hover { border-color: var(--mp-accent); }
+.mp-handoff .mp-card.mp-is-active {
+  background: var(--mp-selected-bg, var(--mp-surface));
+  border-color: var(--mp-selected-border, var(--mp-accent));
+  box-shadow: 0 0 0 1px var(--mp-selected-border, var(--mp-accent));
+}
+.mp-handoff .mp-card-thread { font-size: 12px; color: var(--mp-muted); word-break: break-all; }
+.mp-handoff .mp-card-title { font-weight: 600; margin: 2px 0 8px; }
+.mp-handoff .mp-card-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--mp-muted); }
+
+.mp-handoff .mp-badge { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
+.mp-handoff .mp-badge-已接手 {
+  color: var(--mp-current-fg); background: var(--mp-current-bg); border-color: var(--mp-current-border);
+}
+.mp-handoff .mp-badge-待接手 { color: var(--mp-warn); background: var(--mp-warn-soft); }
+.mp-handoff .mp-badge-已归档, .mp-handoff .mp-badge-已作废, .mp-handoff .mp-badge-草稿 { color: var(--mp-muted); }
+
+.mp-handoff .mp-progress { flex: 1; min-width: 50px; height: 5px; background: var(--mp-border); border-radius: 999px; overflow: hidden; }
+.mp-handoff .mp-progress > span { display: block; height: 100%; background: var(--mp-ok); }
+
+.mp-handoff .mp-detail { background: var(--mp-surface); border: 1px solid var(--mp-border); border-radius: var(--mp-radius); padding: 16px 18px; }
+.mp-handoff .mp-empty { color: var(--mp-muted); margin: 0; }
+/* In the theme's serif, regular weight, as code.claude.com sets its titles. */
+.mp-handoff .mp-detail h2 {
+  font-family: var(--mp-font-display, serif); font-size: 20px; font-weight: 400; letter-spacing: -0.01em; margin: 0 0 3px;
+}
+.mp-handoff .mp-detail-id { color: var(--mp-muted); font-size: 12px; font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); word-break: break-all; }
+.mp-handoff .mp-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px 16px; margin: 14px 0; }
+.mp-handoff .mp-fact-label { font-size: 12px; color: var(--mp-muted); }
+.mp-handoff .mp-fact-value { font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 12px; word-break: break-all; }
+
+.mp-handoff .mp-section { border-top: 1px solid var(--mp-border); padding-top: 12px; margin-top: 14px; }
+.mp-handoff .mp-section-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mp-handoff .mp-section h3 { font-size: 14px; margin: 0; }
+.mp-handoff .mp-section-body { margin-top: 6px; }
+
+.mp-handoff .mp-todo { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px dashed var(--mp-border); }
+.mp-handoff .mp-todo:last-child { border-bottom: none; }
+.mp-handoff .mp-todo input[type=checkbox] {
+  margin-top: 3px; width: 15px; height: 15px; cursor: pointer; flex: none;
+  /* The system's blue otherwise; the theme's checked controls are terracotta. */
+  accent-color: var(--control-checked-bgColor-rest, auto);
+}
+.mp-handoff .mp-todo-main { flex: 1; min-width: 0; }
+.mp-handoff .mp-todo-text { word-break: break-word; }
+.mp-handoff .mp-todo.mp-is-done .mp-todo-text { color: var(--mp-muted); text-decoration: line-through; }
+.mp-handoff .mp-todo-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 3px; font-size: 12px; }
+.mp-handoff .mp-tag { color: var(--mp-muted); border: 1px solid var(--mp-border); border-radius: 4px; padding: 0 6px; }
+.mp-handoff .mp-tag-misaligned { color: var(--mp-warn); border-color: currentColor; background: var(--mp-warn-soft); }
+.mp-handoff .mp-tag-aligned { color: var(--mp-ok); border-color: currentColor; background: var(--mp-ok-soft); }
+/* A commit, in the same terracotta monospace as code in the prose (#208). */
+.mp-handoff .mp-tag-code {
+  font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  color: var(--mp-code-fg, var(--mp-muted)); background: var(--mp-code-bg, transparent);
+  border-color: var(--mp-code-line, var(--mp-border));
+}
+
+/* The theme's secondary button (#203): cream, ink and a hairline in light; #252320 in dark. */
+.mp-handoff .mp-action {
+  background: var(--mp-button-bg, var(--mp-surface)); border: 1px solid var(--mp-button-border, var(--mp-border));
+  border-radius: var(--mp-radius); padding: 3px 10px; cursor: pointer;
+  color: var(--mp-button-fg, var(--mp-muted)); text-decoration: none; display: inline-block;
+}
+.mp-handoff .mp-action:hover {
+  background: var(--mp-button-hover, var(--mp-surface));
+  border-color: var(--mp-button-border, var(--mp-accent)); color: var(--mp-button-fg, var(--mp-accent));
+}
+/* The shared primary button; its colours are the theme's (theme.css). */
+.mp-handoff .mp-action.mp-is-primary {
+  background: var(--mp-primary-bg); border-color: var(--mp-primary-bg); color: var(--mp-primary-fg);
+}
+.mp-handoff .mp-action.mp-is-primary:hover {
+  background: var(--mp-primary-bg-hover); border-color: var(--mp-primary-bg); color: var(--mp-primary-fg);
+}
+.mp-handoff .mp-action[disabled] { opacity: .5; cursor: default; }
+.mp-handoff .mp-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0 0; }
+
+.mp-handoff .mp-editor {
+  width: 100%; min-height: 110px; margin-top: 6px; padding: 8px;
+  border: 1px solid var(--mp-border); border-radius: var(--mp-radius);
+  background: var(--mp-inset); font: inherit; resize: vertical;
+}
+.mp-handoff .mp-editor.mp-mono { font-family: var(--mp-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace); font-size: 13px; }
+.mp-handoff .mp-editor-actions { display: flex; gap: 8px; margin-top: 8px; }
+.mp-handoff .mp-hint { color: var(--mp-muted); font-size: 12px; margin-top: 6px; }
+.mp-handoff .mp-unparsed { margin-top: 10px; padding: 7px 10px; border-radius: var(--mp-radius); background: var(--mp-warn-soft); color: var(--mp-warn); font-size: 12px; }
+
+/* Loading, the ring the other module pages turn: a sheet opens on the tap and fills in
+   when its handoff arrives. */
+.mp-handoff .mp-loading {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 40px 0; color: var(--mp-muted); font-size: 13px;
+}
+.mp-handoff .mp-loading-ring {
+  width: 22px; height: 22px; flex: none; box-sizing: border-box; border-radius: 50%;
+  border: 2.5px solid color-mix(in srgb, var(--mp-accent) 22%, transparent);
+  border-top-color: var(--mp-accent);
+  animation: mp-handoff-turn .8s linear infinite;
+}
+@keyframes mp-handoff-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mp-handoff .mp-loading-ring { animation: none; }
+}
+
+/* Narrow screens (EVAPROJECT-REQ-20260928-002) ----------------------------------------
+   Below 900px the list and the detail stack, and a card's detail landed under the whole
+   list, out of sight of the tap that asked for it. It is a sheet over the list instead,
+   shown while a handoff is chosen; its 返回列表, and the browser's back, close it.
+   Nothing in this block applies above 900px. */
+
+.mp-handoff .mp-sheet-bar { display: none; }
+
+@media (max-width: 900px) {
+  .mp-handoff .mp-detail:not(.mp-is-open) { display: none; }
+  .mp-handoff .mp-detail.mp-is-open {
+    position: fixed; inset: 0; z-index: 1000; margin: 0;
+    padding: 0 16px calc(32px + env(safe-area-inset-bottom));
+    overflow-y: auto; overscroll-behavior: contain;
+    border: 0; border-radius: 0;
+  }
+  /* The list under it keeps its place and stays still while the sheet is read. */
+  body:has(.mp-handoff .mp-detail.mp-is-open) :is(#content-wrapper, #content-body) { overflow: hidden; }
+  /* Safari on iOS paints each of OpenProject's touch-scrolling boxes as a layer of its own,
+     which kept the sheet under the top bar. While it is open they do not scroll, so they
+     stop being touch-scrolling boxes; the sheet scrolls as its own. */
+  body:has(.mp-handoff .mp-detail.mp-is-open) :is(#main, #content-wrapper, #content, #content-body) {
+    -webkit-overflow-scrolling: auto;
+  }
+  .mp-handoff .mp-detail { -webkit-overflow-scrolling: touch; }
+  .mp-handoff .mp-sheet-bar {
+    display: flex; align-items: center; position: sticky; top: 0; z-index: 2;
+    margin: 0 -16px 14px; padding: 4px 8px;
+    background: var(--mp-surface); border-bottom: 1px solid var(--mp-border);
+  }
+  .mp-handoff .mp-sheet-back {
+    display: inline-flex; align-items: center; gap: 2px; min-height: 40px; padding: 0 10px 0 2px;
+    font: inherit; font-size: 15px; color: var(--mp-accent); cursor: pointer;
+    background: transparent; border: 0; border-radius: var(--mp-radius);
+  }
+
+  /* Big enough for a finger. */
+  .mp-handoff .mp-filter { padding: 8px 4px; }
+  .mp-handoff .mp-card { padding: 12px 14px; }
+  .mp-handoff .mp-action { padding: 7px 14px; }
+  .mp-handoff .mp-controls select { min-height: 36px; }
+  .mp-handoff .mp-todo { padding: 10px 0; }
+  .mp-handoff .mp-todo input[type=checkbox] { width: 20px; height: 20px; margin-top: 1px; }
+
+  /* A notice floats at the bottom, over the sheet when one is open; a tap puts it away. */
+  .mp-handoff .mp-notice,
+  .mp-handoff .mp-notice.mp-is-error {
+    position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 1100;
+    margin: 0; background: var(--mp-surface); box-shadow: 0 6px 24px rgba(0, 0, 0, .28);
+  }
+}
+
+/* iOS zooms the page into any field set smaller than 16px when it takes focus, and leaves
+   it zoomed; a touch screen gets its fields at 16px. */
+@media (pointer: coarse) {
+  .mp-handoff select,
+  .mp-handoff .mp-editor { font-size: 16px; }
+}
+
+/* A phone: OpenProject's own 15px margin is enough, and only the first row moves over for
+   the navigation button that sits at the top left of the content. */
+@media (max-width: 640px) {
+  .mp-handoff, .hidden-navigation .mp-handoff { padding: 4px 0 24px; }
+  .hidden-navigation .mp-handoff > aside > .mp-filters:first-child::before { content: ""; flex: none; width: 24px; }
+}

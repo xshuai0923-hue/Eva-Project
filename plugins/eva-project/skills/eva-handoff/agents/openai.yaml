@@ -1,0 +1,4 @@
+interface:
+  display_name: "Eva 交接"
+  short_description: "Save structured Eva work handoffs for another session"
+  default_prompt: "用 $eva-handoff 保存当前工作线。"

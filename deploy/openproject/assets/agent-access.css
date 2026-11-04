@@ -1,0 +1,22 @@
+.eva-agent-access { max-width: 920px; margin: 0 auto; padding: 28px 24px; color: var(--fgColor-default); }
+.eva-agent-access h1 { margin: 0 0 10px; font-size: 26px; }
+.eva-agent-intro, .eva-agent-help { color: var(--fgColor-muted); line-height: 1.7; }
+.eva-agent-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin: 24px 0 16px; }
+.eva-agent-access button, .eva-agent-access select { padding: 8px 14px; border: 1px solid var(--borderColor-default); border-radius: 6px; background: var(--bgColor-default); color: var(--fgColor-default); font: inherit; cursor: pointer; }
+.eva-agent-access button.eva-agent-primary { background: var(--mp-primary-bg, #cc785c); border-color: transparent; color: white; }
+.eva-agent-access button:disabled { opacity: .5; cursor: default; }
+.eva-agent-access textarea { box-sizing: border-box; width: 100%; padding: 16px; border: 1px solid var(--borderColor-default); border-radius: 8px; background: var(--bgColor-muted); color: var(--fgColor-default); font: 13px/1.8 ui-monospace, monospace; resize: vertical; }
+.eva-agent-approval { margin: 28px 0; padding: 22px 0; border-top: 1px solid var(--borderColor-default); border-bottom: 1px solid var(--borderColor-default); }
+.eva-agent-code { display: block; font: 600 28px/1.8 ui-monospace, monospace; letter-spacing: .15em; }
+.eva-agent-error { color: var(--fgColor-danger); }
+.eva-agent-entry { text-align: right; padding: 14px 18px 0; }
+@media (max-width: 600px) { .eva-agent-access { padding: 20px 14px; } .eva-agent-code { font-size: 24px; } }
+
+.eva-guidelines { margin-top: 30px; padding-top: 24px; border-top: 1px solid var(--borderColor-default); }
+.eva-agent-access h2 { font-size: 19px; margin: 22px 0 12px; }
+.eva-guidelines summary { cursor: pointer; margin-bottom: 12px; }
+.eva-guidelines .eva-agent-actions { margin-top: 16px; }
+.eva-agent-install-actions > * { margin: 0; flex-shrink: 0; }
+.eva-agent-install-actions .eva-agent-select { display: inline-block; width: auto; min-width: 150px; height: 38px; }
+.eva-agent-install-actions button { min-height: 38px; }
+@media (max-width: 600px) { .eva-agent-install-actions .eva-agent-select { flex: 1 1 100%; width: 100%; min-width: 0; } }

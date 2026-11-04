@@ -1,0 +1,214 @@
+#!/bin/zsh
+# Local Eva-Project test instance. Mirrors the server topology (same compose files,
+# same bootstrap scripts) but stays fully isolated from it: its own colima profile,
+# compose project, ports and data root, and no launchd or sudo.
+#
+# Uses a dedicated Eva-Project Colima profile, ports and data directory.
+set -eu
+
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+project_root="${EVAPROJECT_LOCAL_SOURCE:-${0:A:h:h:h}}"
+local_root="${EVAPROJECT_LOCAL_ROOT:-/Users/Shared/Eva-Project-local}"
+runtime_root="$local_root/runtime"
+data_root="$local_root/data"
+env_file="$runtime_root/.env"
+
+compose_base="$project_root/vendor/openproject-docker-compose/docker-compose.yml"
+compose_override="$project_root/deploy/docker-compose.override.yml"
+
+profile="evaproject-local"
+compose_project="eva-project-local"
+web_port="${EVAPROJECT_LOCAL_WEB_PORT:-28080}"
+mcp_port="${EVAPROJECT_LOCAL_MCP_PORT:-28081}"
+
+export DOCKER_CONTEXT="colima-$profile"
+
+die() { print -u2 -- "$1"; exit 1; }
+
+require_tools() {
+  for tool in colima docker docker-compose; do
+    whence -p "$tool" >/dev/null || die "缺少 $tool。先安装：brew install colima docker docker-compose"
+  done
+}
+
+compose() {
+  docker-compose \
+    --project-name "$compose_project" \
+    --env-file "$env_file" \
+    -f "$compose_base" \
+    -f "$compose_override" \
+    "$@"
+}
+
+write_env() {
+  [ -f "$env_file" ] && return 0
+  umask 077
+  local secret_key postgres_password collaboration_secret mcp_bearer admin_password
+  secret_key="$(openssl rand -hex 64)"
+  postgres_password="$(openssl rand -hex 32)"
+  collaboration_secret="$(openssl rand -hex 32)"
+  mcp_bearer="$(openssl rand -hex 32)"
+  admin_password="$(openssl rand -base64 36 | tr -d '\n')aA1!"
+
+  print -r -- "$admin_password" > "$runtime_root/admin-password"
+  chmod 600 "$runtime_root/admin-password"
+
+  {
+    print -r -- 'TAG=17.8.0-slim'
+    print -r -- 'POSTGRES_VERSION=17'
+    print -r -- 'OPENPROJECT_HTTPS=false'
+    print -r -- 'OPENPROJECT_HSTS=false'
+    print -r -- "OPENPROJECT_HOST__NAME=localhost:$web_port"
+    print -r -- 'OPENPROJECT_ADDITIONAL__HOST__NAMES=["web","localhost","127.0.0.1"]'
+    print -r -- 'OPENPROJECT_DEFAULT__LANGUAGE=zh-CN'
+    print -r -- "OPENPROJECT_SEED__ADMIN__USER__PASSWORD=$admin_password"
+    print -r -- 'OPENPROJECT_SEED__ADMIN__USER__PASSWORD__RESET=false'
+    print -r -- 'OPENPROJECT_SEED__ADMIN__USER__NAME=Eva Project Local Admin'
+    print -r -- 'OPENPROJECT_SEED__ADMIN__USER__MAIL=admin@eva-project.local'
+    print -r -- "PORT=127.0.0.1:$web_port"
+    print -r -- "MCP_PORT=$mcp_port"
+    print -r -- 'MCP_ALLOWED_HOSTS=localhost,127.0.0.1,mcp'
+    print -r -- "SECRET_KEY_BASE=$secret_key"
+    print -r -- "POSTGRES_PASSWORD=$postgres_password"
+    print -r -- "DATABASE_URL=postgres://postgres:$postgres_password@db/openproject?pool=20&encoding=unicode&reconnect=true"
+    print -r -- "COLLABORATIVE_SERVER_URL=ws://localhost:$web_port/hocuspocus"
+    print -r -- "COLLABORATIVE_SERVER_SECRET=$collaboration_secret"
+    print -r -- "MCP_BEARER_TOKEN=$mcp_bearer"
+    print -r -- 'OPENPROJECT_API_TOKEN=PENDING_BOOTSTRAP'
+    print -r -- "EVAPROJECT_ROOT=$project_root"
+    print -r -- "EVAPROJECT_RUNTIME=$runtime_root"
+    print -r -- "EVAPROJECT_MCP_PUBLIC_URL=http://localhost:$mcp_port/mcp"
+    print -r -- "EVAPROJECT_ADMIN_URL=http://localhost:$mcp_port/admin/"
+    print -r -- "OPENPROJECT_PUBLIC_URL=http://localhost:$web_port"
+    print -r -- "PGDATA=$data_root/postgres"
+    print -r -- "OPDATA=$data_root/openproject/assets"
+    print -r -- 'RAILS_MIN_THREADS=4'
+    print -r -- 'RAILS_MAX_THREADS=16'
+    print -r -- 'IMAP_ENABLED=false'
+    print -r -- 'EVAPROJECT_TZ=Asia/Hong_Kong'
+    print -r -- "EVAPROJECT_UID=$(id -u)"
+    print -r -- "EVAPROJECT_GID=$(id -g)"
+  } > "$env_file"
+  chmod 600 "$env_file"
+
+  local principals_file="$runtime_root/mcp/principals.json"
+  printf '{"principals":[{"token":"%s","userId":"local-admin","displayName":"Local Admin","openProjectLogin":"admin","role":"admin","active":true}]}\n' \
+    "$mcp_bearer" > "$principals_file"
+  chmod 600 "$principals_file"
+}
+
+start_vm() {
+  colima status --profile "$profile" >/dev/null 2>&1 && return 0
+  # Both the data root and the checkout must be visible inside the VM; the checkout
+  # path contains a space, so every mount argument stays quoted.
+  colima start --profile "$profile" --activate=false --cpu 4 --memory 8 --disk 40 \
+    --vm-type vz --mount-type virtiofs \
+    --mount "$local_root:w" \
+    --mount "$project_root:r"
+}
+
+# Compose pulls every image at once, and on this network a few of those parallel
+# TLS handshakes time out even though the registry is reachable. Pulling one at a
+# time, with retries, gets the whole set down reliably.
+prepull_images() {
+  # Only images that are actually pulled. `openproject/proxy` is built locally from
+  # the compose file's own Dockerfile and has no Docker Hub repository.
+  local images=(
+    "postgres:${POSTGRES_VERSION:-17}"
+    memcached
+    "openproject/openproject:${TAG:-17.8.0-slim}"
+    openproject/hocuspocus:17.8.0
+    willfarrell/autoheal:1.2.0
+  )
+  local image attempt
+  for image in "${images[@]}"; do
+    docker image inspect "$image" >/dev/null 2>&1 && continue
+    for attempt in 1 2 3 4 5; do
+      print -r -- "拉取 $image（第 $attempt 次）…"
+      docker pull --quiet "$image" >/dev/null 2>&1 && break
+      [ "$attempt" -eq 5 ] && die "无法拉取镜像：$image"
+      sleep 5
+    done
+  done
+}
+
+run_bootstrap() {
+  compose exec -T \
+    -e EVAPROJECT_BOOTSTRAP_OUTPUT_DIR=/evaproject-runtime \
+    web bundle exec rails runner - < "$project_root/deploy/bootstrap/openproject_bootstrap.rb"
+}
+
+wait_for_web() {
+  local attempt
+  for attempt in {1..150}; do
+    curl -fsS "http://127.0.0.1:$web_port/health_checks/default" >/dev/null 2>&1 && return 0
+    sleep 5
+  done
+  compose ps
+  die "OpenProject 在超时前没有就绪"
+}
+
+cmd_up() {
+  require_tools
+  mkdir -p "$runtime_root/mcp" "$data_root/openproject/assets" "$data_root/postgres" "$local_root/backup"
+  chmod 700 "$runtime_root" "$runtime_root/mcp"
+  write_env
+  start_vm
+  prepull_images
+
+  compose up -d --build db cache seeder web worker cron hocuspocus proxy autoheal
+  wait_for_web
+  run_bootstrap
+
+  local api_token
+  api_token="$(<"$runtime_root/openproject-api-token")"
+  local env_tmp="$runtime_root/.env.tmp"
+  while IFS= read -r env_line; do
+    case "$env_line" in
+      OPENPROJECT_API_TOKEN=*) print -r -- "OPENPROJECT_API_TOKEN=$api_token" ;;
+      *) print -r -- "$env_line" ;;
+    esac
+  done < "$env_file" > "$env_tmp"
+  chmod 600 "$env_tmp"
+  mv "$env_tmp" "$env_file"
+  unset api_token
+
+  compose up -d --build --remove-orphans db cache web worker cron hocuspocus proxy autoheal mcp
+  wait_for_web
+  run_bootstrap
+  compose up -d --no-deps --force-recreate mcp
+  cmd_status
+}
+
+cmd_bootstrap() { require_tools; run_bootstrap; }
+cmd_down() { require_tools; compose down --remove-orphans; }
+cmd_status() {
+  require_tools
+  compose ps
+  print -r -- "OpenProject: http://localhost:$web_port"
+  print -r -- "MCP:         http://localhost:$mcp_port/mcp"
+  print -r -- "管理员密码:  $runtime_root/admin-password"
+}
+cmd_logs() { require_tools; compose logs --tail "${2:-80}" "${1:-web}"; }
+
+# Full teardown, for verifying that a first-time build and an idempotent rerun both work.
+cmd_reset() {
+  require_tools
+  [ "${EVAPROJECT_LOCAL_CONFIRM:-}" = "reset" ] || \
+    die "reset 会删除本地实例的全部数据。确认请执行：EVAPROJECT_LOCAL_CONFIRM=reset $0 reset"
+  compose down --volumes --remove-orphans || true
+  colima delete --profile "$profile" --force || true
+  rm -rf "$local_root"
+  print -r -- "本地实例已清除：$local_root"
+}
+
+case "${1:-}" in
+  up) cmd_up ;;
+  down) cmd_down ;;
+  reset) cmd_reset ;;
+  bootstrap) cmd_bootstrap ;;
+  status) cmd_status ;;
+  logs) shift; cmd_logs "$@" ;;
+  *) die "用法：evaproject-local {up|down|reset|bootstrap|status|logs [服务] [行数]}" ;;
+esac
